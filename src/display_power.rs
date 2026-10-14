@@ -1,10 +1,21 @@
-//! Backlight dimming keeps the screen on; rendering updates are not user activity.
-
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
+
+const EV_SYN: u16 = 0x00;
+const EV_KEY: u16 = 0x01;
+const EV_REL: u16 = 0x02;
+const EV_ABS: u16 = 0x03;
+const SYN_DROPPED: u16 = 0x03;
+const BTN_MISC: u16 = 0x100;
+const BTN_MOUSE: u16 = 0x110;
+const BTN_TASK: u16 = 0x117;
+const BTN_TOUCH: u16 = 0x14a;
+const ABS_MT_SLOT: u16 = 0x2f;
+const ABS_MT_TRACKING_ID: u16 = 0x39;
+const MAX_DST_GAP_MINUTES: i64 = 180;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Night {
@@ -105,6 +116,20 @@ fn parse_time(value: &str) -> Option<u16> {
     (hour < 24 && minute < 60).then_some(hour * 60 + minute)
 }
 
+fn resolve_local_boundary<T: chrono::TimeZone>(
+    timezone: &T,
+    civil: chrono::NaiveDateTime,
+) -> Vec<chrono::DateTime<T>> {
+    for adjustment in 0..=MAX_DST_GAP_MINUTES {
+        match timezone.from_local_datetime(&(civil + chrono::Duration::minutes(adjustment))) {
+            chrono::LocalResult::None => continue,
+            chrono::LocalResult::Single(value) => return vec![value],
+            chrono::LocalResult::Ambiguous(first, second) => return vec![first, second],
+        }
+    }
+    Vec::new()
+}
+
 fn next_night_boundary<T: chrono::TimeZone>(now: chrono::DateTime<T>, night: Night) -> Duration {
     let timezone = now.timezone();
     let mut next = None;
@@ -114,22 +139,10 @@ fn next_night_boundary<T: chrono::TimeZone>(now: chrono::DateTime<T>, night: Nig
             let civil = date
                 .and_hms_opt(u32::from(minute / 60), u32::from(minute % 60), 0)
                 .unwrap();
-            // A skipped civil time takes effect at the first valid time after it.
-            // During a clock rollback, consider both occurrences of the boundary.
-            for adjustment in 0..=180 {
-                let candidates = match timezone
-                    .from_local_datetime(&(civil + chrono::Duration::minutes(adjustment)))
-                {
-                    chrono::LocalResult::None => continue,
-                    chrono::LocalResult::Single(value) => vec![value],
-                    chrono::LocalResult::Ambiguous(first, second) => vec![first, second],
-                };
-                for value in candidates {
-                    if value > now && next.as_ref().is_none_or(|current| value < *current) {
-                        next = Some(value);
-                    }
+            for value in resolve_local_boundary(&timezone, civil) {
+                if value > now && next.as_ref().is_none_or(|current| value < *current) {
+                    next = Some(value);
                 }
-                break;
             }
         }
     }
@@ -209,9 +222,11 @@ impl Backlight {
 }
 
 fn write_brightness(file: &mut impl io::Write, value: u32) -> io::Result<()> {
-    // sysfs parses each write separately; a formatter's trailing newline can fail.
-    let buffer = format!("{value}\n");
-    file.write_all(buffer.as_bytes())
+    file.write_all(sysfs_line(value).as_bytes())
+}
+
+fn sysfs_line(value: u32) -> String {
+    format!("{value}\n")
 }
 
 #[derive(Default)]
@@ -323,16 +338,14 @@ impl Contact {
             return false;
         }
         match (kind, code) {
-            (0, 3) => {
-                // SYN_DROPPED: an empty event cache is not proof of release.
+            (EV_SYN, SYN_DROPPED) => {
                 self.unsynchronized = true;
                 self.touching = false;
                 self.tracked.clear();
                 self.buttons.clear();
                 false
             }
-            (1, 0x14a) => {
-                // BTN_TOUCH
+            (EV_KEY, BTN_TOUCH) => {
                 let was_touching = self.touching;
                 self.touching = value > 0;
                 if !self.touching {
@@ -340,7 +353,7 @@ impl Contact {
                 }
                 was_touching || self.touching
             }
-            (1, 0x110..=0x117) => {
+            (EV_KEY, BTN_MOUSE..=BTN_TASK) => {
                 if value > 0 {
                     self.buttons.insert(code);
                 } else {
@@ -348,14 +361,13 @@ impl Contact {
                 }
                 value > 0
             }
-            (1, _) => value > 0 && code < 0x100,
-            (2, _) => value != 0, // EV_REL: mouse motion or wheel.
-            (3, 0x2f) => {
+            (EV_KEY, _) => is_keyboard_press(kind, code, value),
+            (EV_REL, _) => value != 0,
+            (EV_ABS, ABS_MT_SLOT) => {
                 self.slot = value;
                 false
-            } // ABS_MT_SLOT
-            (3, 0x39) => {
-                // ABS_MT_TRACKING_ID
+            }
+            (EV_ABS, ABS_MT_TRACKING_ID) => {
                 if value >= 0 {
                     self.tracked.insert(self.slot);
                     true
@@ -363,7 +375,7 @@ impl Contact {
                     self.tracked.remove(&self.slot)
                 }
             }
-            (3, _) => self.touching || !self.tracked.is_empty(),
+            (EV_ABS, _) => self.touching || !self.tracked.is_empty(),
             _ => false,
         }
     }
@@ -393,12 +405,12 @@ fn contact_snapshot(
         ..Contact::default()
     };
     if capabilities.touch_button {
-        contact.touching = key_down(keys, 0x14a);
+        contact.touching = key_down(keys, usize::from(BTN_TOUCH));
     }
     if capabilities.mouse_buttons {
         contact
             .buttons
-            .extend((0x110..=0x117).filter(|code| key_down(keys, usize::from(*code))));
+            .extend((BTN_MOUSE..=BTN_TASK).filter(|code| key_down(keys, usize::from(*code))));
     }
     if capabilities.multitouch && capabilities.slots {
         contact.tracked.extend(
@@ -416,10 +428,8 @@ fn rotation_blocked(pointer_readers: usize, pointer_failed: bool, touching_reade
     pointer_failed || pointer_readers == 0 || touching_readers > 0
 }
 
-fn dismisses_saver(kind: u16, code: u16, value: i32) -> bool {
-    // Slint owns pointer dismissal. Its click can open Saver before queued
-    // evdev down/move notifications run, so those notifications only rearm.
-    kind == 1 && code < 0x100 && value > 0
+fn is_keyboard_press(kind: u16, code: u16, value: i32) -> bool {
+    kind == EV_KEY && code < BTN_MISC && value > 0
 }
 
 #[cfg(all(feature = "frame", target_os = "linux"))]
@@ -578,7 +588,6 @@ mod runtime {
         }
     }
 
-    /// Retain until the event loop ends; normal drop restores the day brightness.
     pub struct Guard {
         controller: Rc<Controller>,
         inputs: Arc<InputLifetime>,
@@ -594,18 +603,14 @@ mod runtime {
             )
         }
 
-        /// Use on the UI thread after an accepted physical orientation change.
         pub fn wake(&self) {
             self.controller.wake();
         }
 
-        /// Emit the configured local-time night window now and when it changes.
-        /// Activity restores day brightness without leaving the night window.
         pub fn on_night_changed(&self, callback: impl Fn(bool) + 'static) {
             callback(self.controller.night_active.get());
             *self.controller.night_callback.borrow_mut() = Some(Box::new(callback));
         }
-        /// Pointer input rearms idle; keyboard presses also dismiss the saver.
         pub fn on_activity(&self, callback: impl Fn(bool) + 'static) {
             *self.controller.activity_callback.borrow_mut() = Some(Rc::new(callback));
         }
@@ -639,15 +644,15 @@ mod runtime {
             let keys = std::fs::read_to_string(capabilities.join("key")).unwrap_or_default();
             let axes = std::fs::read_to_string(capabilities.join("abs")).unwrap_or_default();
             let pointer = PointerCapabilities {
-                touch_button: capability(&keys, 0x14a, bits),
-                mouse_buttons: (0x110..=0x117).any(|code| capability(&keys, code, bits)),
-                multitouch: capability(&axes, 0x39, bits),
-                slots: capability(&axes, 0x2f, bits),
+                touch_button: capability(&keys, usize::from(BTN_TOUCH), bits),
+                mouse_buttons: (BTN_MOUSE..=BTN_TASK).any(|code| capability(&keys, usize::from(code), bits)),
+                multitouch: capability(&axes, usize::from(ABS_MT_TRACKING_ID), bits),
+                slots: capability(&axes, usize::from(ABS_MT_SLOT), bits),
             };
             let touch = pointer.touch_button || pointer.multitouch;
-            if !capability(&events, 1, bits)
-                && !capability(&events, 2, bits)
-                && !(capability(&events, 3, bits) && touch)
+            if !capability(&events, usize::from(EV_KEY), bits)
+                && !capability(&events, usize::from(EV_REL), bits)
+                && !(capability(&events, usize::from(EV_ABS), bits) && touch)
             {
                 continue;
             }
@@ -670,6 +675,11 @@ mod runtime {
         Ok((files, pointer_failed))
     }
 
+    const KEY_MAX: usize = 0x2ff;
+    const EVIOCGKEY: u8 = 0x18;
+    const EVIOCGMTSLOTS: u8 = 0x0a;
+    const EVIOCGABS_MT_SLOT: u8 = 0x40 + ABS_MT_SLOT as u8;
+
     fn read_ioctl(number: u8, bytes: usize) -> libc::c_ulong {
         ((2_u64 << 30) | ((bytes as u64) << 16) | (u64::from(b'E') << 8) | u64::from(number))
             as libc::c_ulong
@@ -679,13 +689,12 @@ mod runtime {
         file: &std::fs::File,
         capabilities: PointerCapabilities,
     ) -> io::Result<Contact> {
-        let mut keys = [0_u8; 96]; // KEY_MAX is 0x2ff.
+        let mut keys = [0_u8; KEY_MAX / 8 + 1];
         if capabilities.touch_button || capabilities.mouse_buttons {
-            // EVIOCGKEY reads current state without consuming or grabbing events.
             if unsafe {
                 libc::ioctl(
                     file.as_raw_fd(),
-                    read_ioctl(0x18, keys.len()),
+                    read_ioctl(EVIOCGKEY, keys.len()),
                     keys.as_mut_ptr(),
                 )
             } < 0
@@ -697,11 +706,10 @@ mod runtime {
         let mut tracking = Vec::new();
         if capabilities.multitouch && capabilities.slots {
             let mut info = [0_i32; 6];
-            // EVIOCGABS(ABS_MT_SLOT) bounds the EVIOCGMTSLOTS buffer.
             if unsafe {
                 libc::ioctl(
                     file.as_raw_fd(),
-                    read_ioctl(0x40 + 0x2f, std::mem::size_of_val(&info)),
+                    read_ioctl(EVIOCGABS_MT_SLOT, std::mem::size_of_val(&info)),
                     info.as_mut_ptr(),
                 )
             } < 0
@@ -713,11 +721,11 @@ mod runtime {
             }
             slot = info[0];
             let mut values = vec![0_i32; info[2] as usize + 2];
-            values[0] = 0x39; // ABS_MT_TRACKING_ID
+            values[0] = i32::from(ABS_MT_TRACKING_ID);
             if unsafe {
                 libc::ioctl(
                     file.as_raw_fd(),
-                    read_ioctl(0x0a, values.len() * std::mem::size_of::<i32>()),
+                    read_ioctl(EVIOCGMTSLOTS, values.len() * std::mem::size_of::<i32>()),
                     values.as_mut_ptr(),
                 )
             } < 0
@@ -771,8 +779,6 @@ mod runtime {
         }
         let offset = 2 * std::mem::size_of::<isize>();
         let mut record = vec![0; offset + 8];
-        // Each evdev open owns its event queue. Blocking reads neither poll nor
-        // grab input from Slint; dormant readers end with the process.
         while lifetime.alive.load(Ordering::Acquire) {
             match file.read_exact(&mut record) {
                 Ok(()) => {}
@@ -786,7 +792,7 @@ mod runtime {
             let code = u16::from_ne_bytes(record[offset + 2..offset + 4].try_into().unwrap());
             let value = i32::from_ne_bytes(record[offset + 4..offset + 8].try_into().unwrap());
             if contact.unsynchronized {
-                if kind == 0 && code == 0 {
+                if kind == EV_SYN && code == 0 {
                     if let Some(capabilities) = pointer {
                         match resynchronize(&file, capabilities) {
                             Ok(snapshot) => {
@@ -821,7 +827,7 @@ mod runtime {
                     lifetime.touching_readers.fetch_add(1, Ordering::AcqRel);
                 }
             }
-            if activity && dismisses_saver(kind, code, value) {
+            if activity && is_keyboard_press(kind, code, value) {
                 lifetime.pending_dismissal.store(true, Ordering::Release);
             }
             if activity
@@ -909,7 +915,6 @@ mod runtime {
                 pending: AtomicBool::new(false),
                 pending_dismissal: AtomicBool::new(false),
                 readers: AtomicUsize::new(files.len()),
-                // Unknown until each pointer reader obtains a kernel snapshot.
                 touching_readers: AtomicUsize::new(pointers),
                 pointer_readers: AtomicUsize::new(pointers),
                 pointer_failed: AtomicBool::new(pointer_failed),
@@ -965,11 +970,11 @@ mod tests {
     fn touch_input_rearms_idle_without_dismissing_a_clicked_saver() {
         let mut contact = Contact::default();
         assert!(contact.activity(1, 0x14a, 1));
-        assert!(!dismisses_saver(1, 0x14a, 1));
+        assert!(!is_keyboard_press(1, 0x14a, 1));
         assert!(contact.activity(3, 0x35, 300));
-        assert!(!dismisses_saver(3, 0x35, 300));
+        assert!(!is_keyboard_press(3, 0x35, 300));
         assert!(contact.activity(1, 0x14a, 0));
-        assert!(!dismisses_saver(1, 0x14a, 0));
+        assert!(!is_keyboard_press(1, 0x14a, 0));
     }
 
     #[test]
@@ -978,9 +983,8 @@ mod tests {
         let mut pending_dismissal = false;
         for (kind, code, value) in [(3, 0x39, 10), (3, 0x35, 300), (3, 0x39, -1)] {
             assert!(contact.activity(kind, code, value));
-            pending_dismissal |= dismisses_saver(kind, code, value);
+            pending_dismissal |= is_keyboard_press(kind, code, value);
         }
-        // The queued notification may run after Slint's clicked handler opens Saver.
         assert!(!pending_dismissal);
         assert!(!contact.is_touching());
     }
@@ -989,15 +993,15 @@ mod tests {
     fn keyboard_dismisses_saver_but_mouse_input_only_rearms_idle() {
         let mut contact = Contact::default();
         assert!(contact.activity(1, 30, 1));
-        assert!(dismisses_saver(1, 30, 1));
+        assert!(is_keyboard_press(1, 30, 1));
         assert!(contact.activity(1, 30, 2));
-        assert!(dismisses_saver(1, 30, 2));
+        assert!(is_keyboard_press(1, 30, 2));
         assert!(!contact.activity(1, 30, 0));
-        assert!(!dismisses_saver(1, 30, 0));
+        assert!(!is_keyboard_press(1, 30, 0));
         assert!(contact.activity(2, 0, -5));
-        assert!(!dismisses_saver(2, 0, -5));
+        assert!(!is_keyboard_press(2, 0, -5));
         assert!(contact.activity(1, 0x110, 1));
-        assert!(!dismisses_saver(1, 0x110, 1));
+        assert!(!is_keyboard_press(1, 0x110, 1));
     }
 
     struct Fixture(PathBuf);
@@ -1149,6 +1153,11 @@ mod tests {
         write_brightness(&mut sysfs, 51).unwrap();
         assert_eq!(sysfs.brightness, 51);
         assert_eq!(sysfs.writes, [b"51\n".to_vec()]);
+    }
+
+    #[test]
+    fn sysfs_line_is_decimal_with_trailing_newline() {
+        assert_eq!(sysfs_line(51), "51\n");
     }
 
     #[test]

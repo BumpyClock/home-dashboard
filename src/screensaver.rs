@@ -76,7 +76,6 @@ impl Guard {
         self.arm_after_idle();
     }
 
-    /// Raw pointer input rearms; Slint's saver click handler owns pointer dismissal.
     #[cfg(all(feature = "frame", target_os = "linux"))]
     pub fn activity(self: &Rc<Self>, dismiss: bool) {
         if dismiss {
@@ -145,7 +144,6 @@ pub fn install(app: &AppWindow, idle_secs: u64) -> Rc<Guard> {
         }
     });
     saver.set_active(config.start_active);
-    // SaverLayer's initial demand can precede installation of this callback.
     photos::demand(app);
     Rc::new(Guard {
         app: app.as_weak(),

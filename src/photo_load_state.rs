@@ -1,4 +1,3 @@
-/// Physical photo width, photo height, and caption-scrim height.
 pub type PhotoSize = (u32, u32, u32);
 
 #[derive(Default)]

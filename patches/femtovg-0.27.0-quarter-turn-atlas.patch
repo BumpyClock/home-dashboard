@@ -1,10 +1,9 @@
 --- a/src/lib.rs
 +++ b/src/lib.rs
-@@ -359,2 +359,30 @@
+@@ -359,2 +359,29 @@
      .flatten()
 +}
 +
-+// Unit quarter turns can reuse upright glyph coverage at 1:1.
 +fn quarter_turn_atlas_transform(transform: Transform2D, paint: &Paint) -> Option<Transform2D> {
 +    if !matches!(paint.flavor, PaintFlavor::Color(_))
 +        || !paint.text.font_size.is_finite()
@@ -31,7 +30,7 @@
 +    }
 +    None
  }
-@@ -2167,6 +2195,9 @@
+@@ -2167,6 +2194,9 @@
          enum Rasterization {
              Path,
              Atlas,
@@ -41,14 +40,12 @@
              ScaledAtlas {
                  scale: f32,
                  true_scale: f32,
-@@ -2177,8 +2208,12 @@
+@@ -2177,8 +2207,10 @@
          // Classify the canvas transform. 1e-3 epsilon: tight enough to catch any
          // intentional transform, loose enough to tolerate matrix-op drift.
          let rasterization = match self.state().transform.as_uniform_scale_translation(1e-3) {
 -            // Rotation / skew / non-uniform / negative scale: outline rendering.
 -            None => Rasterization::Path,
-+            // Only unit proper quarter turns with solid small text reuse coverage.
-+            // Other rotation / skew / non-uniform / negative scale stays direct.
 +            None => match quarter_turn_atlas_transform(self.state().transform, paint) {
 +                Some(transform) => Rasterization::QuarterTurnAtlas { transform },
 +                None => Rasterization::Path,
@@ -56,7 +53,7 @@
              Some((true_scale, tx, ty)) => {
                  // Quantize the baked scale so small animation steps don't churn the
                  // atlas; 1/16 steps (≈6%) are imperceptible at typical zoom levels.
-@@ -2350,6 +2385,13 @@
+@@ -2350,6 +2382,12 @@
                  let residual = true_scale / scale;
                  let saved = self.state().transform;
                  self.state_mut().transform = Transform2D::new(residual, 0.0, 0.0, residual, tx, ty);
@@ -64,7 +61,6 @@
 +                self.state_mut().transform = saved;
 +            }
 +            Rasterization::QuarterTurnAtlas { transform } => {
-+                // No fallible work runs under the snapped transform.
 +                let saved = self.state().transform;
 +                self.state_mut().transform = transform;
                  self.draw_glyph_commands(draw_commands, paint);

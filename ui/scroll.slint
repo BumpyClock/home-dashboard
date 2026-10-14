@@ -1,11 +1,3 @@
-// Momentum scroller with some physical weight: drag 1:1, coast with
-// friction after release, rubber-band past the ends, and settle on a
-// slightly under-damped spring. `scroll-to()` uses the same spring, so
-// programmatic moves feel like the content was pushed, not tweened.
-//
-// Closed-form motion is sampled at animation frames; idle reads no animation clock.
-// Use for content without its own touch targets (taps are not forwarded).
-
 import { Theme } from "theme.slint";
 import { Physics } from "tokens.slint";
 
@@ -16,9 +8,8 @@ export component PhysicsScroll inherits Rectangle {
     in property <bool> active: true;
     in property <bool> cache-content: false;
     out property <length> offset: mode == ScrollMode.idle ? position : (mode == ScrollMode.coasting ? clamp-y(sample-position(elapsed)) : sample-position(elapsed));
-    out property <bool> dragging: ta.pressed;
+    out property <bool> dragging: drag-capture.pressed;
     callback user-scrolled();
-    // content-space press position, for releases that did not drag
     callback tapped(length, length);
 
     clip: true;
@@ -38,7 +29,8 @@ export component PhysicsScroll inherits Rectangle {
     property <duration> last-t;
     property <duration> motion-t;
     property <bool> motion-enabled: Theme.motion;
-    property <duration> elapsed: active && motion-enabled && mode != ScrollMode.idle ? max(0ms, animation-tick() - motion-t) : 0ms;
+    property <bool> animating: active && motion-enabled && mode != ScrollMode.idle;
+    property <duration> elapsed: animating ? max(0ms, animation-tick() - motion-t) : 0ms;
     property <float> coast-rate: -ln(Physics.friction-per-step) / (Physics.step / 1ms);
     property <float> decay: Physics.damping-per-ms / 2;
     property <float> frequency: sqrt(max(Physics.stiffness-per-ms2 - decay * decay, Physics.under-damped-floor-per-ms2));
@@ -65,7 +57,7 @@ export component PhysicsScroll inherits Rectangle {
             interrupt-motion();
             anchor = target;
             start-motion(ScrollMode.spring);
-        } else if (mode == ScrollMode.idle && !ta.pressed) {
+        } else if (mode == ScrollMode.idle && !drag-capture.pressed) {
             position = clamp-y(position);
         }
     }
@@ -126,7 +118,7 @@ export component PhysicsScroll inherits Rectangle {
     }
 
     changed elapsed => {
-        if (active && motion-enabled && mode != ScrollMode.idle) {
+        if (animating) {
             let current = sample-position(elapsed);
             let velocity = sample-velocity(elapsed);
             if (mode == ScrollMode.coasting && (current < lo || current > hi || abs(velocity) < Physics.coast-stop-px-per-ms)) {
@@ -161,7 +153,7 @@ export component PhysicsScroll inherits Rectangle {
         @children
     }
 
-    ta := TouchArea {
+    drag-capture := TouchArea {
         pointer-event(e) => {
             if (e.kind == PointerEventKind.down) {
                 pressed-during-motion = mode != ScrollMode.idle;

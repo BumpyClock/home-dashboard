@@ -18,9 +18,6 @@ impl Event {
 }
 
 pub trait CalendarSource {
-    /// Events overlapping `day` (local time), sorted by start.
-    /// Called on the UI thread: return an in-memory snapshot without blocking.
-    /// Future network sources must fetch separately and publish their snapshot.
     fn events_on(&self, day: NaiveDate) -> Vec<Event>;
 }
 

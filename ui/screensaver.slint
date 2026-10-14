@@ -44,16 +44,19 @@ component Glance inherits VerticalLayout {
 
 component Screensaver inherits PhotoStage {
     ready: Frame.photos[Frame.photo-index].full.width > 0;
-    live: true;
+    running: true;
     autoplay: Theme.ambient;
     slide: Frame.photo-transition-slide;
     interval: Motion.screensaver-interval;
     background: Fixed.black;
     property <bool> wide: self.width > self.height;
-    property <string> displayed: "\{root.current-index} \{root.previous-index} \{root.moving ? 1 : 0}";
+    property <{current: int, previous: int}> displayed: {
+        current: root.current-index,
+        previous: root.moving ? root.previous-index : -1,
+    };
     function report-displayed() {
-        Saver.full-current = root.current-index;
-        Saver.full-previous = root.moving ? root.previous-index : -1;
+        Saver.full-current = displayed.current;
+        Saver.full-previous = displayed.previous;
     }
     changed displayed => { report-displayed(); }
     init => { report-displayed(); }
@@ -122,10 +125,21 @@ component Screensaver inherits PhotoStage {
     }
 }
 
-// Always present: tells Rust what to keep decoded, shows the screensaver on demand.
 export component SaverLayer inherits Rectangle {
     clip: true;
-    property <string> demand: "\{Frame.photo-index} \{Saver.active ? 1 : 0} \{Frame.active-tab} \{Saver.grid-first} \{Saver.grid-end} \{Saver.card-current} \{Saver.card-previous} \{Saver.full-current} \{Saver.full-previous} \{Saver.pixel-width} \{Saver.pixel-height}";
+    property <{photo-index: int, saver-active: bool, tab: int, grid-first: int, grid-end: int, card-current: int, card-previous: int, full-current: int, full-previous: int, pixel-width: int, pixel-height: int}> demand-inputs: {
+        photo-index: Frame.photo-index,
+        saver-active: Saver.active,
+        tab: Frame.active-tab,
+        grid-first: Saver.grid-first,
+        grid-end: Saver.grid-end,
+        card-current: Saver.card-current,
+        card-previous: Saver.card-previous,
+        full-current: Saver.full-current,
+        full-previous: Saver.full-previous,
+        pixel-width: Saver.pixel-width,
+        pixel-height: Saver.pixel-height,
+    };
     function report-size() {
         Saver.pixel-width = Math.ceil(self.width / 1phx);
         Saver.pixel-height = Math.ceil(self.height / 1phx);
@@ -136,7 +150,7 @@ export component SaverLayer inherits Rectangle {
     }
     changed width => { report-size(); }
     changed height => { report-size(); }
-    changed demand => { Saver.demand(); }
+    changed demand-inputs => { Saver.demand(); }
     init => { report-size(); Saver.demand(); }
     if Saver.active: Screensaver { }
 }

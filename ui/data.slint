@@ -1,6 +1,3 @@
-// Everything the UI shows, filled from Rust (src/main.rs). Defaults mirror
-// the pen.dev "Family Dashboard" frame so the .slint previewer looks right.
-
 export struct Avatar { initial: string, tint: color }
 export struct AgendaRow { time: string, title: string, meta: string, people: [Avatar], next: bool, past: bool }
 export struct MiniEvent { time: string, title: string, tint: color }
@@ -8,12 +5,9 @@ export struct ListItem { title: string, tint: color, done: bool }
 export struct DayDot { state: int, tint: color }
 export struct ChoreRow { name: string, who: string, tint: color, days: [DayDot] }
 export struct HourSlot { label: string, icon: string, temp: string }
-// Only photos near the one on screen carry pixels; the rest are empty (src/photos.rs).
-// image = Home card size, full = screensaver, thumb = grid tile.
 export struct Photo { image: image, full: image, thumb: image, title: string }
 export struct ThemeSwatch { name: string, bg: color, surface: color, ink: color, accent: color, rail: color }
-// family "" = reuse the body font
-export struct FontChoice { label: string, family: string }
+export struct FontChoice { label: string, family: string, use-body-font: bool }
 
 export global Frame {
     in property <int> orientation-degrees;
@@ -29,8 +23,8 @@ export global Frame {
     in property <bool> urgent;
 
     in property <string> agenda-summary: "6 events · 4 people";
-    in property <[AgendaRow]> agenda-past;  // ended, scrolled out of view
-    in property <[AgendaRow]> agenda-next;  // ongoing + upcoming
+    in property <[AgendaRow]> agenda-past;
+    in property <[AgendaRow]> agenda-current;
     in property <string> agenda-done: "That's everything for today.";
     in property <string> agenda-done-sub;
     in property <string> tomorrow-label: "TOMORROW · WED";

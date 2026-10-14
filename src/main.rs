@@ -62,7 +62,7 @@ fn plural(n: usize, one: &str) -> String {
 
 struct Models {
     agenda_past: Rc<VecModel<AgendaRow>>,
-    agenda_next: Rc<VecModel<AgendaRow>>,
+    agenda_current: Rc<VecModel<AgendaRow>>,
     tomorrow: Rc<VecModel<MiniEvent>>,
     list: Rc<VecModel<ListItem>>,
     chores: Rc<VecModel<ChoreRow>>,
@@ -125,7 +125,7 @@ fn refresh_calendar(app: &AppWindow, st: &State) {
     let split_at_upcoming = first_current.unwrap_or(events.len());
     let row = |(i, e): (usize, &Event)| agenda_row(e, clock24, Some(i) == first_current, e.ends() <= now);
     sync_by(&st.models.agenda_past, events.iter().enumerate().take(split_at_upcoming).map(row).collect(), same_agenda);
-    sync_by(&st.models.agenda_next, events.iter().enumerate().skip(split_at_upcoming).map(row).collect(), same_agenda);
+    sync_by(&st.models.agenda_current, events.iter().enumerate().skip(split_at_upcoming).map(row).collect(), same_agenda);
     set_changed!(f, get_agenda_done, set_agenda_done, s(if events.is_empty() { "Nothing on the calendar today." } else { "That's everything for today." }));
     set_changed!(f, get_agenda_done_sub, set_agenda_done_sub, s(match tomorrow.first() {
         Some(e) => format!("Tomorrow starts with {} at {}.", e.title, fmt_time(e.start, clock24)),
@@ -243,7 +243,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = AppWindow::new()?;
     let models = Models {
         agenda_past: Rc::new(VecModel::default()),
-        agenda_next: Rc::new(VecModel::default()),
+        agenda_current: Rc::new(VecModel::default()),
         tomorrow: Rc::new(VecModel::default()),
         list: Rc::new(VecModel::default()),
         chores: Rc::new(VecModel::default()),
@@ -255,7 +255,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         f.set_cache_main_content(std::env::var("FRAME_CACHE_MAIN_CONTENT").map_or(cfg!(feature = "frame"), |v| v != "0"));
         f.set_benchmark_mode(std::env::var("FRAME_BENCHMARK").is_ok_and(|v| v == "1"));
         f.set_agenda_past(models.agenda_past.clone().into());
-        f.set_agenda_next(models.agenda_next.clone().into());
+        f.set_agenda_current(models.agenda_current.clone().into());
         f.set_tomorrow(models.tomorrow.clone().into());
         f.set_list(models.list.clone().into());
         f.set_chores(models.chores.clone().into());
@@ -264,7 +264,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             name: s(name), bg: p.bg, surface: p.surface, ink: p.ink, accent: p.accent, rail: p.rail,
         }).collect::<Vec<_>>())));
         let fonts = |list: &[(&str, &str)]| ModelRc::new(VecModel::from(list.iter()
-            .map(|(l, fam)| FontChoice { label: s(l), family: s(fam) }).collect::<Vec<_>>()));
+            .map(|(l, fam)| FontChoice { label: s(l), family: s(fam), use_body_font: fam.is_empty() }).collect::<Vec<_>>()));
         f.set_display_fonts(fonts(&settings::DISPLAY_FONTS));
         f.set_body_fonts(fonts(&settings::BODY_FONTS));
         photos::init(&app);
@@ -297,10 +297,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let Some(app) = weak.upgrade() else { return };
                 let sf = app.window().scale_factor();
                 let size = ((w * sf).ceil() as u32, (h * sf).ceil() as u32, (scrim_h * sf).ceil() as u32);
-                photos::load_scaled(app.as_weak(), size, app.global::<Frame>().get_photo_scrim_bake());
+                photos::load_scaled(size, app.global::<Frame>().get_photo_scrim_bake());
             });
         });
-        // Initial layout can settle before the callback is installed.
         let weak = app.as_weak();
         Timer::single_shot(Duration::ZERO, move || {
             let Some(app) = weak.upgrade() else { return };

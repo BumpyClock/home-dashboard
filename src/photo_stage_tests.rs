@@ -19,7 +19,7 @@ slint::slint! {
         stage := PhotoStage {
             width: 100px;
             height: 100px;
-            live: true;
+            running: true;
             autoplay: false;
             slide: true;
             interval: 120s;
@@ -81,7 +81,6 @@ impl Scene {
 }
 
 fn isolated(test: impl FnOnce(&mut Scene) + Send + 'static) {
-    // Each case needs its own Slint context and controllable platform clock.
     std::thread::spawn(move || test(&mut Scene::new())).join().unwrap();
 }
 

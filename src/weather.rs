@@ -9,7 +9,6 @@ pub fn city() -> String {
     std::env::var("FRAME_CITY").unwrap_or_else(|_| "Seattle".into())
 }
 
-/// WMO weather_code → (label, lucide icon). https://open-meteo.com/en/docs
 fn wmo(code: i64, day: bool) -> (&'static str, &'static str) {
     match code {
         0 => ("Clear", if day { "sun" } else { "moon" }),

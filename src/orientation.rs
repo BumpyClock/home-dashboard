@@ -317,7 +317,6 @@ mod runtime {
         }
     }
 
-    /// Retain until shutdown; a rejected UI callback stays pending until accepted.
     pub struct Guard {
         shared: Arc<Shared>,
         _handler: Rc<Handler>,
@@ -336,18 +335,22 @@ mod runtime {
                 .wait_timeout_while(finished, Duration::from_millis(250), |finished| !*finished)
                 .unwrap();
             if *finished {
-                if self
-                    .thread
-                    .take()
-                    .is_some_and(|thread| thread.join().is_err())
-                {
-                    eprintln!("[orientation] sensor worker failed during shutdown");
-                }
+                join_finished_worker(self.thread.take());
             } else {
-                // Kernel I/O cannot be cancelled.
-                eprintln!("[orientation] sensor read exceeded shutdown deadline; worker detached");
+                detach_blocked_worker(self.thread.take());
             }
         }
+    }
+
+    fn join_finished_worker(thread: Option<JoinHandle<()>>) {
+        if thread.is_some_and(|thread| thread.join().is_err()) {
+            eprintln!("[orientation] sensor worker failed during shutdown");
+        }
+    }
+
+    fn detach_blocked_worker(thread: Option<JoinHandle<()>>) {
+        drop(thread);
+        eprintln!("[orientation] sensor read exceeded shutdown deadline; worker detached");
     }
 
     fn run(app: slint::Weak<crate::AppWindow>, shared: Arc<Shared>, calibration: Calibration) {

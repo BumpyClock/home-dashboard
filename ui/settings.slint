@@ -119,7 +119,7 @@ component FontCard inherits Choice {
         alignment: center;
         Text {
             text: sample;
-            font-family: f.family == "" ? Theme.font-body : f.family;
+            font-family: f.use-body-font ? Theme.font-body : f.family;
             font-size: sample-size;
             color: Theme.c.ink;
             opacity: root.pressed ? Alpha.pressed : 1;

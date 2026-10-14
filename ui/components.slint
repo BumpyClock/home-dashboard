@@ -307,11 +307,8 @@ export component WeatherCard inherits Rectangle {
     }
 }
 
-// Slideshow state shared by the Home card and the screensaver: which photo is
-// current, which one is leaving, and the transition between them. A stage that
-// isn't `live` snaps to the requested photo and runs no timer or animation.
 export component PhotoStage inherits Rectangle {
-    in property <bool> live;
+    in property <bool> running;
     in property <bool> autoplay;
     in property <bool> slide;
     in property <duration> interval;
@@ -327,23 +324,24 @@ export component PhotoStage inherits Rectangle {
     property <int> requested-index: Frame.photo-index;
     property <bool> pending: current-index != requested-index;
     property <bool> motion-enabled: Theme.motion;
-    animate progress { duration: moving && live ? Theme.d(Motion.photo-transition) : 0ms; easing: Motion.ease-photo; }
+    property <bool> snap: !running || !Theme.motion;
+    animate progress { duration: moving && running ? Theme.d(Motion.photo-transition) : 0ms; easing: Motion.ease-photo; }
     changed requested-index => {
         if (!moving) { start-transition(); }
     }
     changed ready => {
         if (ready && !moving) { start-transition(); }
     }
-    changed live => {
-        if (!live) { moving = false; previous-index = -1; current-index = requested-index; }
+    changed running => {
+        if (!running) { moving = false; previous-index = -1; current-index = requested-index; }
     }
     changed motion-enabled => {
         if (!motion-enabled) { moving = false; previous-index = -1; start-transition(); }
     }
     function start-transition() {
         if (requested-index == current-index) { return; }
-        if (live && !ready) { return; }
-        if (!Theme.motion || !live) {
+        if (running && !ready) { return; }
+        if (snap) {
             current-index = requested-index;
             previous-index = -1;
             return;
@@ -358,17 +356,17 @@ export component PhotoStage inherits Rectangle {
     init => { current-index = requested-index; }
     Timer {
         interval: Motion.photo-transition;
-        running: moving && live;
+        running: moving && root.running;
         triggered => { moving = false; previous-index = -1; }
     }
     Timer {
         interval: Motion.coalesce;
-        running: live && ready && !moving && pending;
+        running: root.running && ready && !moving && pending;
         triggered => { start-transition(); }
     }
     Timer {
         interval: root.interval;
-        running: live && autoplay && !Frame.night-active && !Frame.benchmark-mode && Frame.photos.length > 1 && !moving && !pending;
+        running: root.running && autoplay && !Frame.night-active && !Frame.benchmark-mode && Frame.photos.length > 1 && !moving && !pending;
         triggered => {
             Frame.photo-direction = 1;
             Frame.photo-index = Math.mod(Frame.photo-index + 1, Frame.photos.length);
@@ -376,20 +374,33 @@ export component PhotoStage inherits Rectangle {
     }
 }
 
+component RoundedCornerMask inherits Rectangle {
+    in property <length> inner-width;
+    in property <length> inner-height;
+    x: -Radius.panel;
+    y: -Radius.panel;
+    width: inner-width + 2 * Radius.panel;
+    height: inner-height + 2 * Radius.panel;
+    border-radius: 2 * Radius.panel;
+    border-width: Radius.panel;
+    border-color: Theme.c.bg;
+}
+
 export component PhotoCard inherits PhotoStage {
     ready: Frame.photos[Frame.photo-index].image.width > 0;
-    // Rectangular clipping uses a scissor; the page-colored ring below
-    // masks rounded corners without an offscreen layer for the whole card.
     clip: true;
     background: Frame.photos.length > 0 ? transparent : Theme.c.line;
-    live: Frame.active-tab == 0 && !Saver.active;
+    running: Frame.active-tab == 0 && !Saver.active;
     autoplay: Theme.ambient;
     slide: Frame.photo-transition-slide;
     interval: Motion.slideshow-interval;
-    property <string> displayed: "\{root.current-index} \{root.previous-index} \{root.moving ? 1 : 0} \{root.live ? 1 : 0}";
+    property <{current: int, previous: int}> displayed: {
+        current: root.running ? root.current-index : -1,
+        previous: root.running && root.moving ? root.previous-index : -1,
+    };
     function report-displayed() {
-        Saver.card-current = root.live ? root.current-index : -1;
-        Saver.card-previous = root.live && root.moving ? root.previous-index : -1;
+        Saver.card-current = displayed.current;
+        Saver.card-previous = displayed.previous;
     }
     changed displayed => { report-displayed(); }
     property <length> physical-pixel: 1phx;
@@ -460,15 +471,7 @@ export component PhotoCard inherits PhotoStage {
         width: parent.width;
         height: parent.height;
     }
-    Rectangle {
-        x: -Radius.panel;
-        y: -Radius.panel;
-        width: parent.width + 2 * Radius.panel;
-        height: parent.height + 2 * Radius.panel;
-        border-radius: 2 * Radius.panel;
-        border-width: Radius.panel;
-        border-color: Theme.c.bg;
-    }
+    RoundedCornerMask { inner-width: parent.width; inner-height: parent.height; }
     TouchArea {
         clicked => {
             if (Frame.photos.length > 0) {
@@ -614,11 +617,11 @@ export component Agenda inherits VerticalLayout {
                 spacing: Space.md;
                 for row in Frame.agenda-past: AgendaCard { data: row; }
             }
-            if Frame.agenda-past.length > 0 || Frame.agenda-next.length > 0: NowLine { }
+            if Frame.agenda-past.length > 0 || Frame.agenda-current.length > 0: NowLine { }
             upcoming := VerticalLayout {
                 spacing: Space.md;
-                for row in Frame.agenda-next: AgendaCard { data: row; }
-                if Frame.agenda-next.length == 0: Rectangle {
+                for row in Frame.agenda-current: AgendaCard { data: row; }
+                if Frame.agenda-current.length == 0: Rectangle {
                     border-radius: Radius.item;
                     border-width: Size.line;
                     border-color: Theme.c.line;

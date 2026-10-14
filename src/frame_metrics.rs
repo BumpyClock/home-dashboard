@@ -113,8 +113,6 @@ fn query_gl_limits(api: &GraphicsAPI<'_>) -> Option<(i32, i32)> {
         return None;
     }
     let (mut texture, mut renderbuffer) = (0, 0);
-    // Slint keeps the GL context current during these rendering notifications.
-    // Both GLES 2 limits write one GLint, and the query changes no GL state.
     unsafe {
         let get_integer: unsafe extern "system" fn(u32, *mut i32) = std::mem::transmute(address);
         get_integer(GL_MAX_TEXTURE_SIZE, &mut texture);
@@ -154,7 +152,6 @@ fn perform(
     }));
 }
 
-/// Retain the returned timers until the application's event loop ends.
 pub fn install(app: &AppWindow) -> Option<MetricsGuard> {
     let output = PathBuf::from(std::env::var_os("FRAME_METRICS_OUTPUT")?);
     if !output.is_absolute() {

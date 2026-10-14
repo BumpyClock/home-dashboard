@@ -112,7 +112,6 @@ fn dir() -> PathBuf {
         .unwrap_or_else(bundled_dir)
 }
 
-/// DateTimeOriginal ("YYYY:MM:DD HH:MM:SS") from raw Exif: IFD0 -> Exif IFD -> tag 0x9003.
 fn exif_date(exif: &[u8]) -> Option<String> {
     let tiff = exif.strip_prefix(b"Exif\0\0").unwrap_or(exif);
     let little = match tiff.get(..2)? { b"II" => true, b"MM" => false, _ => return None };
@@ -124,7 +123,6 @@ fn exif_date(exif: &[u8]) -> Option<String> {
         let b: [u8; 4] = tiff.get(at..at.checked_add(4)?)?.try_into().ok()?;
         Some(if little { u32::from_le_bytes(b) } else { u32::from_be_bytes(b) })
     };
-    // offset of the entry's 4-byte value field
     let value_of = |ifd: usize, tag: u16| -> Option<usize> {
         (0..u16_at(ifd)? as usize).find_map(|i| {
             let entry = ifd.checked_add(2)?.checked_add(i.checked_mul(12)?)?;
@@ -153,7 +151,6 @@ fn scan(dir: &Path) -> Vec<Entry> {
     }).collect()
 }
 
-/// Scan $FRAME_PHOTOS (fallback: assets/photos) and give the UI one empty row per photo.
 pub fn init(app: &AppWindow) {
     let directory = dir();
     let bundled = bundled_dir();
@@ -230,18 +227,21 @@ fn fit(img: &RgbImage, w: u32, h: u32, current: impl Fn() -> bool) -> Option<Sha
         eprintln!("[photos] cover resize exceeds the pixel budget");
         return None;
     }
-    // Keep resize-before-crop: cropping first changes Triangle edge samples.
     let resized;
     let scaled = if (sw, sh) == img.dimensions() { img }
         else { resized = imageops::resize(img, sw.max(w), sh.max(h), FilterType::Triangle); &resized };
     if !current() { return None; }
+    Some(center_crop(scaled, w, h))
+}
+
+fn center_crop(scaled: &RgbImage, w: u32, h: u32) -> SharedPixelBuffer<Rgb8Pixel> {
     let (x, y) = ((scaled.width() - w) / 2, (scaled.height() - h) / 2);
     let mut output = SharedPixelBuffer::<Rgb8Pixel>::new(w, h);
     for (row, dest) in output.make_mut_bytes().chunks_exact_mut(w as usize * 3).enumerate() {
         let start = ((y as usize + row) * scaled.width() as usize + x as usize) * 3;
         dest.copy_from_slice(&scaled.as_raw()[start..start + dest.len()]);
     }
-    Some(output)
+    output
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -431,8 +431,7 @@ fn update(change: impl FnOnce(&mut Shared) -> bool) {
     }
 }
 
-/// Card pixel size changed (debounced by the caller): decode the window at that size.
-pub fn load_scaled(_weak: slint::Weak<AppWindow>, size: PhotoSize, bake: bool) {
+pub fn load_scaled(size: PhotoSize, bake: bool) {
     let request = LOAD_STATE.lock().unwrap().request_mode(size, bake);
     let generation = request.generation();
     let started = request.started();
@@ -573,7 +572,6 @@ fn work(weak: slint::Weak<AppWindow>) {
                 if let Some(Card { generation, .. }) = step.card_done { LOAD_STATE.lock().unwrap().finish(generation); }
             }
         }).is_err() { return; }
-        // Dropping the callback's sender acknowledges both publication and rejection.
         let _ = acknowledged.recv();
     }
 }
@@ -730,9 +728,7 @@ mod tests {
     fn caption_is_month_and_year_from_exif_date_taken() {
         let date = b"2023:03:14 10:20:30\0";
         let mut tiff = vec![b'I', b'I', 42, 0, 8, 0, 0, 0];
-        // IFD0: one entry, Exif IFD pointer -> 26
         tiff.extend_from_slice(&[1, 0, 0x69, 0x87, 4, 0, 1, 0, 0, 0, 26, 0, 0, 0, 0, 0, 0, 0]);
-        // Exif IFD: one entry, DateTimeOriginal (ASCII, 20) -> 44
         tiff.extend_from_slice(&[1, 0, 0x03, 0x90, 2, 0, 20, 0, 0, 0, 44, 0, 0, 0, 0, 0, 0, 0]);
         tiff.extend_from_slice(date);
         assert_eq!(exif_date(&tiff).as_deref(), Some("2023:03:14 10:20:30"));
@@ -866,6 +862,24 @@ mod tests {
         assert!(shared.accepts(4, 4, Kind::Card, (388, 280, 0), 20));
         shared.want.current = 15;
         assert!(!shared.accepts(4, 4, Kind::Card, (388, 280, 0), 20));
+    }
+
+    #[test]
+    fn fit_crops_the_center_of_the_unscaled_image() {
+        let image = RgbImage::from_fn(4, 2, |x, _| image::Rgb([x as u8, 0, 0]));
+        let output = fit(&image, 2, 2, || true).unwrap();
+        let reds: Vec<u8> = output.as_bytes().chunks_exact(3).map(|pixel| pixel[0]).collect();
+        assert_eq!(reds, [1, 2, 1, 2]);
+    }
+
+    #[test]
+    fn fit_resizes_to_cover_before_cropping_the_center() {
+        let image = RgbImage::from_fn(8, 4, |x, _| image::Rgb([if x < 4 { 0 } else { 255 }, 0, 0]));
+        let output = fit(&image, 2, 2, || true).unwrap();
+        let reds: Vec<u8> = output.as_bytes().chunks_exact(3).map(|pixel| pixel[0]).collect();
+        assert_eq!(reds[0], reds[2]);
+        assert!(reds[0] > 0 && reds[1] < 255);
+        assert!(reds[0] < reds[1]);
     }
 
     #[test]

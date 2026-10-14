@@ -1,5 +1,3 @@
-// Design-token guard: fails the build on design values inlined outside ui/tokens.slint / ui/theme.slint.
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 

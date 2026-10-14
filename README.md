@@ -151,7 +151,9 @@ without it; desktop `cargo run` keeps the original renderer.
 
 The `frame` feature uses DRM/KMS with the FemtoVG OpenGL ES renderer and
 libinput touch input. For the PF1007L's ARMv7 Mali-400/Lima GPU, follow
-[the frame build and run instructions](docs/frame.md). Desktop `cargo run`
+[the frame build and run instructions](docs/frame.md). Building from macOS
+and deploying over USB serial is covered in
+[the serial deploy runbook](docs/serial-deploy.md). Desktop `cargo run`
 keeps Slint's default backends and renderers.
 The [production systemd unit](deploy/photoframe-proto.service) provides
 persistent startup and retains USB serial access.

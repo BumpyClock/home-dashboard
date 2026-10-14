@@ -45,16 +45,17 @@ impl ThumbnailKey {
 struct ThumbnailCache {
     entries: VecDeque<(ThumbnailKey, SharedPixelBuffer<Rgb8Pixel>)>,
     bytes: usize,
+    max_entries: usize,
+    max_bytes: usize,
 }
 
 impl ThumbnailCache {
-    const MAX_BYTES: usize = 16 * 1024 * 1024;
-    const MAX_ENTRIES: usize = 16;
-
-    const fn new() -> Self {
+    const fn new(max_entries: usize, max_bytes: usize) -> Self {
         Self {
             entries: VecDeque::new(),
             bytes: 0,
+            max_entries,
+            max_bytes,
         }
     }
 
@@ -77,10 +78,10 @@ impl ThumbnailCache {
             .map(|(_, image)| image.as_bytes().len())
             .sum();
         let size = image.as_bytes().len();
-        if size > Self::MAX_BYTES {
+        if size > self.max_bytes {
             return;
         }
-        while self.bytes + size > Self::MAX_BYTES || self.entries.len() >= Self::MAX_ENTRIES {
+        while self.bytes + size > self.max_bytes || self.entries.len() >= self.max_entries {
             if let Some((_, old)) = self.entries.pop_front() {
                 self.bytes -= old.as_bytes().len();
             }
@@ -90,7 +91,18 @@ impl ThumbnailCache {
     }
 }
 
-static THUMBNAILS: Mutex<ThumbnailCache> = Mutex::new(ThumbnailCache::new());
+static RENDITIONS: Mutex<ThumbnailCache> = Mutex::new(ThumbnailCache::new(16, 16 * 1024 * 1024));
+// Grid thumbnails get their own cache so card and full-screen renditions cannot evict them.
+static GRID_THUMBNAILS: Mutex<ThumbnailCache> =
+    Mutex::new(ThumbnailCache::new(128, 28 * 1024 * 1024));
+
+fn cache_for(kind: Kind) -> &'static Mutex<ThumbnailCache> {
+    if kind == Kind::Thumb {
+        &GRID_THUMBNAILS
+    } else {
+        &RENDITIONS
+    }
+}
 
 fn raster_scrim(w: u32, h: u32) -> Result<RgbaImage, &'static str> {
     let image =
@@ -183,13 +195,43 @@ fn exif_date(exif: &[u8]) -> Option<String> {
         .map(str::to_owned)
 }
 
+// Reads markers up to the first scan, so the playlist scan costs a few kilobytes per photo
+// instead of the whole file.
+fn exif_segment(path: &Path) -> Option<Vec<u8>> {
+    let mut file = std::io::BufReader::new(std::fs::File::open(path).ok()?);
+    let mut byte = [0u8; 2];
+    file.read_exact(&mut byte).ok()?;
+    if byte != [0xff, 0xd8] {
+        return None;
+    }
+    loop {
+        file.read_exact(&mut byte[..1]).ok()?;
+        if byte[0] != 0xff {
+            return None;
+        }
+        // Any number of 0xFF fill bytes may precede the marker code.
+        while byte[0] == 0xff {
+            file.read_exact(&mut byte[..1]).ok()?;
+        }
+        let marker = byte[0];
+        match marker {
+            0xd9 | 0xda | 0x00 => return None,
+            0x01 | 0xd0..=0xd7 => continue,
+            _ => {}
+        }
+        file.read_exact(&mut byte).ok()?;
+        let length = usize::from(u16::from_be_bytes(byte)).checked_sub(2)?;
+        let mut segment = vec![0; length];
+        file.read_exact(&mut segment).ok()?;
+        if marker == 0xe1 && segment.starts_with(b"Exif\0\0") {
+            return Some(segment);
+        }
+    }
+}
+
 fn taken(path: &Path) -> Option<chrono::NaiveDateTime> {
-    let mut decoder = photo_decoder(path).ok()?;
-    chrono::NaiveDateTime::parse_from_str(
-        &exif_date(&decoder.exif_metadata().ok()??)?,
-        "%Y:%m:%d %H:%M:%S",
-    )
-    .ok()
+    chrono::NaiveDateTime::parse_from_str(&exif_date(&exif_segment(path)?)?, "%Y:%m:%d %H:%M:%S")
+        .ok()
 }
 
 fn scan(dir: &Path) -> Vec<Entry> {
@@ -473,15 +515,13 @@ impl Want {
             card_slots.extend(screen_slots);
             card_slots
         };
-        if !self.full {
-            slots.extend(
-                self.thumbs
-                    .clone()
-                    .filter(|&i| i < count)
-                    .take(MAX_THUMBS)
-                    .map(|i| (i, Kind::Thumb, (THUMB, THUMB, 0))),
-            );
-        }
+        slots.extend(
+            self.thumbs
+                .clone()
+                .filter(|&i| i < count)
+                .take(MAX_THUMBS)
+                .map(|i| (i, Kind::Thumb, (THUMB, THUMB, 0))),
+        );
         slots
     }
 }
@@ -520,7 +560,6 @@ enum CardBatch {
 struct Shared {
     want: Want,
     have: BTreeMap<(usize, Kind), HaveSlot>,
-    generation: u64,
     card_batch: CardBatch,
 }
 
@@ -529,6 +568,8 @@ type Buffer = SharedPixelBuffer<Rgb8Pixel>;
 enum Rendered {
     Ready(Buffer),
     Failed,
+    // Demand dropped the slot mid-render. Never recorded, so the slot reloads if wanted again.
+    Cancelled,
 }
 
 impl Shared {
@@ -544,20 +585,14 @@ impl Shared {
                 thumbs: 0..0,
             },
             have: BTreeMap::new(),
-            generation: 0,
             card_batch: CardBatch::Settled,
         }
     }
 
-    fn accepts(
-        &self,
-        generation: u64,
-        index: usize,
-        kind: Kind,
-        spec: PhotoSize,
-        count: usize,
-    ) -> bool {
-        self.generation == generation && self.want.slots(count).contains(&(index, kind, spec))
+    // Slot membership alone decides: scrolling changes demand every row, and a decode that is
+    // still wanted must finish rather than restart.
+    fn accepts(&self, index: usize, kind: Kind, spec: PhotoSize, count: usize) -> bool {
+        self.want.slots(count).contains(&(index, kind, spec))
     }
 
     fn filled(&self, index: usize, kind: Kind, spec: PhotoSize) -> bool {
@@ -605,9 +640,7 @@ static DEMAND_CHANGED: Condvar = Condvar::new();
 static LOAD_STATE: Mutex<PhotoLoadState> = Mutex::new(PhotoLoadState::new());
 
 fn update(change: impl FnOnce(&mut Shared) -> bool) {
-    let mut shared = SHARED.lock().unwrap();
-    if change(&mut shared) {
-        shared.generation = shared.generation.wrapping_add(1);
+    if change(&mut SHARED.lock().unwrap()) {
         DEMAND_CHANGED.notify_one();
     }
 }
@@ -635,12 +668,13 @@ pub fn demand(app: &AppWindow) {
     let f = app.global::<Frame>();
     let saver = app.global::<Saver>();
     let rows = |v: i32| v.max(0) as usize;
-    let thumbs = if f.get_active_tab() == 2 {
-        rows(saver.get_grid_first())..rows(saver.get_grid_end())
-    } else {
-        0..0
-    };
     update(|s| {
+        // Off the Photos tab, the last grid range stays resident so returning shows it at once.
+        let thumbs = if f.get_active_tab() == 2 {
+            rows(saver.get_grid_first())..rows(saver.get_grid_end())
+        } else {
+            s.want.thumbs.clone()
+        };
         let pair = |current: i32, previous: i32| {
             [current, previous]
                 .into_iter()
@@ -683,7 +717,7 @@ fn render(
         let key = ThumbnailKey::read(path, spec, scrim > 0).ok();
         let cached = key
             .as_ref()
-            .and_then(|key| THUMBNAILS.lock().unwrap().get(key));
+            .and_then(|key| cache_for(kind).lock().unwrap().get(key));
         let rendered = cached
             .or_else(|| {
                 let image = decoded
@@ -705,13 +739,19 @@ fn render(
                 }
                 if let Some(key) = key {
                     if ThumbnailKey::read(path, spec, scrim > 0).ok().as_ref() == Some(&key) {
-                        THUMBNAILS.lock().unwrap().insert(key, buf.clone());
+                        cache_for(kind).lock().unwrap().insert(key, buf.clone());
                     }
                 }
                 Some(buf)
             })
             .map(Rendered::Ready)
-            .unwrap_or(Rendered::Failed);
+            .unwrap_or_else(|| {
+                if wanted(kind, spec) {
+                    Rendered::Failed
+                } else {
+                    Rendered::Cancelled
+                }
+            });
         out.push((kind, spec, rendered));
     }
     out
@@ -720,12 +760,12 @@ fn render(
 fn work(weak: slint::Weak<AppWindow>) {
     let playlist = PLAYLIST.get().map_or(&[][..], Vec::as_slice);
     loop {
-        let (step, card, generation) = {
+        let step = {
             let mut shared = SHARED.lock().unwrap();
             loop {
                 let step = shared.step(playlist.len());
                 if step.job.is_some() || !step.evict.is_empty() || step.card_done.is_some() {
-                    break (step, shared.want.card, shared.generation);
+                    break step;
                 }
                 shared = DEMAND_CHANGED.wait(shared).unwrap();
             }
@@ -733,8 +773,10 @@ fn work(weak: slint::Weak<AppWindow>) {
         let mut updates = Vec::new();
         if let Some(job) = &step.job {
             let outcomes = render(&playlist[job.index].path, job, |kind, spec| {
-                let shared = SHARED.lock().unwrap();
-                shared.accepts(generation, job.index, kind, spec, playlist.len())
+                SHARED
+                    .lock()
+                    .unwrap()
+                    .accepts(job.index, kind, spec, playlist.len())
             });
             for (kind, spec, rendered) in outcomes {
                 updates.push((job.index, kind, spec, rendered));
@@ -748,9 +790,7 @@ fn work(weak: slint::Weak<AppWindow>) {
                 let Some(app) = weak.upgrade() else { return };
                 demand(&app);
                 let mut shared = SHARED.lock().unwrap();
-                if shared.generation != generation {
-                    return;
-                }
+                let card = shared.want.card;
                 let slots = shared.want.slots(playlist.len());
                 let mut admitted = Vec::new();
                 for (index, kind) in step.evict {
@@ -769,6 +809,7 @@ fn work(weak: slint::Weak<AppWindow>) {
                             Rendered::Failed => {
                                 shared.have.insert((index, kind), HaveSlot::Failed(spec));
                             }
+                            Rendered::Cancelled => {}
                         }
                     }
                 }
@@ -956,7 +997,7 @@ mod tests {
             ThumbnailKey::read(&fixture.0.join(".").join("photo.jpg"), first.size, false).unwrap(),
             first
         );
-        let mut cache = ThumbnailCache::new();
+        let mut cache = ThumbnailCache::new(16, 16 * 1024 * 1024);
         let image = cover(&path, 24, 24, || true).unwrap();
         cache.insert(first.clone(), image.clone());
         let second = ThumbnailKey::read(&path, (14, 42, 10), false).unwrap();
@@ -1005,7 +1046,7 @@ mod tests {
     #[test]
     fn thumbnail_cache_evicts_least_recent_entries_and_bounds_pixel_memory() {
         let fixture = PhotoFixture::new();
-        let mut cache = ThumbnailCache::new();
+        let mut cache = ThumbnailCache::new(16, 16 * 1024 * 1024);
         let first = ThumbnailKey::read(&fixture.photo(), (1, 1, 0), false).unwrap();
         for w in 1..=16 {
             let key = ThumbnailKey::read(&fixture.photo(), (w, 1, 0), false).unwrap();
@@ -1025,8 +1066,8 @@ mod tests {
                 ThumbnailKey::read(&fixture.photo(), (1024, height, 0), false).unwrap(),
                 SharedPixelBuffer::new(1024, height),
             );
-            assert!(cache.bytes <= ThumbnailCache::MAX_BYTES);
-            assert!(cache.entries.len() <= ThumbnailCache::MAX_ENTRIES);
+            assert!(cache.bytes <= cache.max_bytes);
+            assert!(cache.entries.len() <= cache.max_entries);
         }
         assert!(cache.get(&first).is_none());
     }
@@ -1111,6 +1152,16 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["", "March 2023"]
         );
+
+        let mut filled = jpeg[..2].to_vec();
+        filled.extend_from_slice(&[0xff, 0xff, 0xff, 0xe1]);
+        filled.extend_from_slice(&((tagged.len() + 2) as u16).to_be_bytes());
+        filled.extend_from_slice(&tagged);
+        filled.extend_from_slice(&jpeg[2..]);
+        let padded = fixture.0.join("b-fill-bytes.jpg");
+        std::fs::write(&padded, filled).unwrap();
+        assert_eq!(taken(&padded), taken(&dated));
+        assert!(taken(&padded).is_some());
     }
 
     fn resident_want(current: usize) -> Want {
@@ -1179,7 +1230,7 @@ mod tests {
     }
 
     #[test]
-    fn rapid_grid_jump_keeps_both_images_actually_in_transition() {
+    fn rapid_grid_jump_keeps_both_images_actually_in_transition_and_grid_resident() {
         let want = Want {
             current: 40,
             card_displayed: vec![1, 0],
@@ -1200,7 +1251,14 @@ mod tests {
         for index in [8, 9] {
             assert!(slots.contains(&(index, Kind::Full, (800, 1280, 0))));
         }
-        assert_eq!(slots.iter().filter(|s| s.1 == Kind::Thumb).count(), 0);
+        assert_eq!(
+            slots.iter().filter(|s| s.1 == Kind::Thumb).count(),
+            MAX_THUMBS
+        );
+        assert!(
+            slots.iter().position(|s| s.1 == Kind::Thumb)
+                > slots.iter().rposition(|s| s.1 != Kind::Thumb)
+        );
         assert_eq!(slots.iter().filter(|s| s.1 == Kind::Card).count(), 2);
         assert_eq!(slots.iter().filter(|s| s.1 == Kind::Full).count(), 6);
     }
@@ -1224,7 +1282,13 @@ mod tests {
         let step = shared.step(66);
         let job = step.job.unwrap();
         assert_eq!(job.index, 0);
-        assert_eq!(job.specs, [(Kind::Full, (800, 1280, 0))]);
+        assert_eq!(
+            job.specs,
+            [
+                (Kind::Full, (800, 1280, 0)),
+                (Kind::Thumb, (THUMB, THUMB, 0))
+            ]
+        );
         let slots = shared.want.slots(66);
         assert!(slots.contains(&(65, Kind::Full, (800, 1280, 0))));
         assert!(!slots.iter().any(|slot| slot.1 == Kind::Card));
@@ -1248,23 +1312,26 @@ mod tests {
     }
 
     #[test]
-    fn queued_decode_requires_current_demand_generation_and_exact_slot_size() {
+    fn queued_decode_survives_unrelated_demand_but_requires_exact_slot_size() {
         let mut shared = Shared::new();
-        shared.generation = 3;
         shared.want.current = 4;
         shared.want.card = Some(Card {
             size: (388, 280, 180),
             bake: true,
             generation: 1,
         });
-        assert!(shared.accepts(3, 4, Kind::Card, (388, 280, 180), 20));
-        shared.generation = 4;
-        assert!(!shared.accepts(3, 4, Kind::Card, (388, 280, 180), 20));
+        shared.want.thumbs = 0..12;
+        assert!(shared.accepts(4, Kind::Card, (388, 280, 180), 20));
+        assert!(shared.accepts(10, Kind::Thumb, (THUMB, THUMB, 0), 20));
+        shared.want.thumbs = 4..16;
+        assert!(shared.accepts(10, Kind::Thumb, (THUMB, THUMB, 0), 20));
+        assert!(shared.accepts(4, Kind::Card, (388, 280, 180), 20));
+        assert!(!shared.accepts(2, Kind::Thumb, (THUMB, THUMB, 0), 20));
         shared.want.card.as_mut().unwrap().bake = false;
-        assert!(!shared.accepts(4, 4, Kind::Card, (388, 280, 180), 20));
-        assert!(shared.accepts(4, 4, Kind::Card, (388, 280, 0), 20));
+        assert!(!shared.accepts(4, Kind::Card, (388, 280, 180), 20));
+        assert!(shared.accepts(4, Kind::Card, (388, 280, 0), 20));
         shared.want.current = 15;
-        assert!(!shared.accepts(4, 4, Kind::Card, (388, 280, 0), 20));
+        assert!(!shared.accepts(4, Kind::Card, (388, 280, 0), 20));
     }
 
     #[test]

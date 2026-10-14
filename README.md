@@ -42,7 +42,7 @@ Useful env vars:
 |---|---|---|
 | Calendar | `src/calendar.rs` → `CalendarSource::events_on(day)` | `DemoCalendar` (fake events anchored to the real date). Implement the trait for CalDAV / Google / ICS and swap it in `main.rs`. |
 | People, chores, shared list | `src/household.rs` | Demo data |
-| Photos | `src/photos.rs` | Real JPEGs from `FRAME_PHOTOS`; only the photos around the one shown (plus visible grid thumbnails) stay decoded |
+| Photos | `src/photos.rs` | Real JPEGs from `FRAME_PHOTOS`; only the photos around the one shown, plus the last-viewed grid range of thumbnails, stay decoded |
 | Weather | `src/weather.rs` | Live Open-Meteo |
 | Settings | `src/settings.rs` | Themes, fonts, text size, clock, motion, photo transition, screensaver delay; JSON on disk |
 

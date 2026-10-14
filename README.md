@@ -32,7 +32,7 @@ Useful env vars:
 | `FRAME_CACHE_MAIN_CONTENT=0` | Disable Agenda heading/rows, navigation button layouts, and Settings heading/card-body caches for comparison. Enabled by default in frame builds. Moving notches, Header, Chores, and animated control outlines draw directly. |
 | `FRAME_CACHE_DASHBOARD=0` | Disable the summary and weather caches for comparison. |
 | `FRAME_IDLE_DIM_SECONDS=180`, `FRAME_IDLE_BRIGHTNESS=20` | Frame builds dim after three minutes of human inactivity. Touch restores `FRAME_DAY_BRIGHTNESS` (65%). Set the timeout to `0` to disable. |
-| `FRAME_NIGHT_START=22:00`, `FRAME_NIGHT_END=06:00` | Opt into a local-time night window. Idle brightness becomes `FRAME_NIGHT_BRIGHTNESS` (10%); touch restores 65%. Automatic slides pause during this window. |
+| `FRAME_NIGHT_START=22:00`, `FRAME_NIGHT_END=06:00` | Opt into a night window interpreted in the configured time zone (Settings tab; `System` follows the OS). Idle brightness becomes `FRAME_NIGHT_BRIGHTNESS` (10%); touch restores 65%. Automatic slides pause during this window. |
 | `FRAME_AUTO_ROTATE=0` | Disable calibrated SC7A20 rotation in frame builds. See [calibration and configuration](docs/orientation.md). |
 | `FRAME_PHOTO_SCRIM=svg` / `baked` | Select an SVG caption overlay or a ramp fused into decoded photos. Frame builds default to `baked`; desktop builds default to `svg`. |
 | `FRAME_METRICS_OUTPUT=/absolute/external/run.json`, `FRAME_BENCHMARK=1` | Capture the scripted frame workload after warmup. See [measurement instructions](docs/performance.md). |
@@ -76,8 +76,10 @@ Slint copies of the Linen palette fail the build with file:line messages.
 Theme (Linen, Sage, Harbor, Paper, Night), headline font (Instrument
 Serif, DM Serif Display, Young Serif, or same as body), body font (Inter,
 Atkinson Hyperlegible), text size (100/112/125%), 24/12-hour clock, motion
-(Full / Calm / Off), photo transition (Slide / Fade), and screensaver
-delay (Never / 1 / 2 / 5 min). Applies live, saved on change. Theme switches dip
+(Full / Calm / Off), photo transition (Slide / Fade), screensaver
+delay (Never / 1 / 2 / 5 min), and time zone (System or a curated IANA
+zone; drives the clock, agenda, and night windows). Applies live, saved on
+change. Theme switches dip
 through the page color.
 
 ## Performance on the frame

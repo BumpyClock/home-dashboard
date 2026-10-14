@@ -459,8 +459,8 @@ mod runtime {
         static CURRENT: RefCell<Weak<Controller>> = RefCell::new(Weak::new());
     }
 
-    fn hardware_now() -> chrono::DateTime<chrono::Local> {
-        chrono::Local::now()
+    fn hardware_now() -> chrono::DateTime<chrono_tz::Tz> {
+        chrono::Utc::now().with_timezone(&crate::settings::zone())
     }
 
     struct Controller {

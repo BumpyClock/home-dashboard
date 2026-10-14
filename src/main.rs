@@ -17,7 +17,7 @@ mod shutdown;
 mod weather;
 
 use calendar::{CalendarSource, DemoCalendar, Event};
-use chrono::{Datelike, Duration as CDur, Local, NaiveDateTime, Timelike};
+use chrono::{Datelike, Duration as CDur, NaiveDateTime, Timelike, Utc};
 
 use household::PEOPLE;
 use refresh::{same_agenda, same_chore, sync, sync_by, until_next_minute};
@@ -32,7 +32,7 @@ slint::include_modules!();
 fn now() -> NaiveDateTime {
     use std::sync::OnceLock;
     static OFFSET: OnceLock<CDur> = OnceLock::new();
-    let real = Local::now().naive_local();
+    let real = Utc::now().with_timezone(&settings::zone()).naive_local();
     real + *OFFSET.get_or_init(|| {
         std::env::var("FRAME_NOW")
             .ok()
@@ -383,6 +383,7 @@ fn apply_settings(app: &AppWindow, st: &State, animate_theme: bool) {
     f.set_photo_transition_slide(set.photo_slide);
     f.set_photo_transition_index(if set.photo_slide { 0 } else { 1 });
     f.set_screensaver_idle_index(set.screensaver_idle as i32);
+    f.set_timezone_index(set.timezone as i32);
 
     let palette = settings::themes()[set.theme].1.clone();
     if animate_theme && theme.get_motion() && theme.get_c() != palette {
@@ -462,6 +463,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         f.set_display_fonts(fonts(&settings::DISPLAY_FONTS));
         f.set_body_fonts(fonts(&settings::BODY_FONTS));
+        f.set_timezone_rows(ModelRc::new(VecModel::from(
+            settings::TIMEZONES
+                .chunks(5)
+                .map(|row| TimeZoneRow {
+                    zones: ModelRc::new(VecModel::from(
+                        row.iter().map(|(label, _)| s(*label)).collect::<Vec<_>>(),
+                    )),
+                })
+                .collect::<Vec<_>>(),
+        )));
+        f.set_timezone_system_name(s(settings::system_zone_name()));
         photos::init(&app);
         if let Some(tab) = std::env::var("FRAME_TAB")
             .ok()
@@ -593,6 +605,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         on_pick_clock24,
         |set, v: bool| {
             set.clock24 = v;
+        },
+        refresh_clock_and_calendar
+    );
+    setting!(
+        on_pick_timezone,
+        |set, i: i32| {
+            set.timezone = i as usize;
+            settings::set_zone_index(set.timezone);
         },
         refresh_clock_and_calendar
     );

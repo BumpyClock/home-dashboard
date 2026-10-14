@@ -1,4 +1,4 @@
-use chrono::{Local, Timelike};
+use chrono::{Timelike, Utc};
 use slint::{Model, ModelRc, SharedString, VecModel};
 use std::time::Duration;
 
@@ -102,7 +102,7 @@ pub fn spawn(weak: slint::Weak<AppWindow>) {
                     let (cond, icon) = wmo(code, is_day);
                     let hi = num(&v["daily"]["temperature_2m_max"][0]).unwrap_or(0);
                     let lo = num(&v["daily"]["temperature_2m_min"][0]).unwrap_or(0);
-                    let now_h = Local::now().hour() as usize;
+                    let now_h = Utc::now().with_timezone(&crate::settings::zone()).hour() as usize;
                     let hourly = &v["hourly"];
                     let code_at = |i: usize| hourly["weather_code"][i].as_i64();
 

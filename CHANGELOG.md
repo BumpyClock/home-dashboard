@@ -1,5 +1,6 @@
 # v.00
 - Unreleased, no update yet. Build dev builds from source.
+- Time zone setting: Settings tab picker (System + 14 IANA zones, stored by name in `settings.json` as `"timezone"`). The clock, calendar day, weather hour labels, and `FRAME_NIGHT_*` windows now follow the configured zone instead of system local time; `System` follows the OS zone.
 - Photos tab: thumbnails appear sooner and scrolling is smoother. Decodes still wanted are no longer restarted on every scrolled row; grid thumbnails stay loaded across tab changes and the screensaver and have their own cache; scrolling one row re-uploads only that row's tiles; tiles round their corners with a mask ring instead of an offscreen-layer clip; the startup scan reads only JPEG headers for the EXIF date.
 - Photos tab: grid thumbnails are built once per photo and stored on disk (`FRAME_THUMB_CACHE`), including a background pass while the frame is idle; later visits and restarts load them directly. The production unit stores them in `/var/cache/photoframe-proto/thumbs`.
 - Photos tab uses the theme's page background and text colors instead of a fixed dark backdrop.

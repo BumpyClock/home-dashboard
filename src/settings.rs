@@ -1,7 +1,7 @@
 use slint::Color;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc, OnceLock};
 use std::time::Duration;
 
@@ -17,6 +17,7 @@ pub struct Settings {
     pub motion: usize,
     pub photo_slide: bool,
     pub screensaver_idle: usize,
+    pub timezone: usize,
 }
 
 impl Default for Settings {
@@ -30,12 +31,74 @@ impl Default for Settings {
             motion: 0,
             photo_slide: true,
             screensaver_idle: 2,
+            timezone: 0,
         }
     }
 }
 
 pub const SCALES: [f32; 3] = [1.0, 1.12, 1.25];
 pub const SCREENSAVER_IDLE_SECS: [u64; 4] = [0, 60, 120, 300];
+
+// (label, IANA name); "system" follows /etc/localtime (or $TZ).
+// The JSON file stores the name, so entries stay stable once shipped.
+pub const TIMEZONES: [(&str, &str); 15] = [
+    ("System", "system"),
+    ("Los Angeles", "America/Los_Angeles"),
+    ("Denver", "America/Denver"),
+    ("Chicago", "America/Chicago"),
+    ("New York", "America/New_York"),
+    ("São Paulo", "America/Sao_Paulo"),
+    ("London", "Europe/London"),
+    ("Paris", "Europe/Paris"),
+    ("Berlin", "Europe/Berlin"),
+    ("Dubai", "Asia/Dubai"),
+    ("Kolkata", "Asia/Kolkata"),
+    ("Singapore", "Asia/Singapore"),
+    ("Tokyo", "Asia/Tokyo"),
+    ("Sydney", "Australia/Sydney"),
+    ("Auckland", "Pacific/Auckland"),
+];
+
+static ZONE_INDEX: AtomicUsize = AtomicUsize::new(0);
+
+pub fn set_zone_index(index: usize) {
+    ZONE_INDEX.store(index.min(TIMEZONES.len() - 1), Ordering::Relaxed);
+}
+
+// Readable from any thread (weather worker, display-power controller);
+// written only by Settings::load and the settings picker on the UI thread.
+pub fn zone() -> chrono_tz::Tz {
+    zone_from_name(TIMEZONES[ZONE_INDEX.load(Ordering::Relaxed)].1)
+}
+
+fn zone_from_name(name: &str) -> chrono_tz::Tz {
+    if name == "system" {
+        system_zone()
+    } else {
+        name.parse().unwrap_or(chrono_tz::Tz::UTC)
+    }
+}
+
+pub fn system_zone_name() -> &'static str {
+    static NAME: OnceLock<String> = OnceLock::new();
+    NAME.get_or_init(|| {
+        std::env::var("TZ")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .or_else(|| {
+                std::fs::read_link("/etc/localtime").ok().and_then(|link| {
+                    link.to_string_lossy()
+                        .rsplit_once("zoneinfo/")
+                        .map(|(_, zone)| zone.to_string())
+                })
+            })
+            .unwrap_or_else(|| "UTC".into())
+    })
+}
+
+fn system_zone() -> chrono_tz::Tz {
+    system_zone_name().parse().unwrap_or(chrono_tz::Tz::UTC)
+}
 
 pub const DISPLAY_FONTS: [(&str, &str); 4] = [
     ("Instrument Serif", "Instrument Serif"),
@@ -161,6 +224,11 @@ pub fn themes() -> Vec<(&'static str, Palette)> {
             },
         ),
     ]
+}
+
+fn timezone_index(name: Option<&str>) -> usize {
+    name.and_then(|n| TIMEZONES.iter().position(|(_, zone)| *zone == n))
+        .unwrap_or(0)
 }
 
 fn path() -> PathBuf {
@@ -318,6 +386,7 @@ impl Settings {
     pub fn load() -> Self {
         let d = Self::default();
         let Ok(text) = std::fs::read_to_string(path()) else {
+            set_zone_index(d.timezone);
             return d;
         };
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
@@ -328,7 +397,7 @@ impl Settings {
                 .map(|n| (n as usize).min(max - 1))
                 .unwrap_or(def)
         };
-        Self {
+        let settings = Self {
             theme: idx("theme", themes().len(), d.theme),
             display_font: idx("display_font", DISPLAY_FONTS.len(), d.display_font),
             body_font: idx("body_font", BODY_FONTS.len(), d.body_font),
@@ -345,7 +414,10 @@ impl Settings {
                 .map(|m| (m as usize).min(2))
                 .or_else(|| v["motion"].as_bool().map(|on| if on { 0 } else { 2 }))
                 .unwrap_or(d.motion),
-        }
+            timezone: timezone_index(v["timezone"].as_str()),
+        };
+        set_zone_index(settings.timezone);
+        settings
     }
 
     pub fn save(&self) {
@@ -353,6 +425,7 @@ impl Settings {
             "theme": self.theme, "display_font": self.display_font, "body_font": self.body_font,
             "scale": self.scale, "clock24": self.clock24, "motion": self.motion,
             "photo_slide": self.photo_slide, "screensaver_idle": self.screensaver_idle,
+            "timezone": TIMEZONES[self.timezone.min(TIMEZONES.len() - 1)].1,
         });
         let snapshot = SaveSnapshot {
             path: path(),
@@ -378,6 +451,8 @@ mod tests {
     use super::{
         atomic_write, commit_pending, run_writer, SaveCommand, SaveSnapshot, TEMP_SEQUENCE,
     };
+    use super::{system_zone_name, timezone_index, zone_from_name, TIMEZONES};
+    use chrono::{TimeZone, Timelike};
     use std::path::PathBuf;
     use std::sync::atomic::Ordering;
     use std::sync::{mpsc, Arc, Mutex};
@@ -405,6 +480,38 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn timezone_names_round_trip_and_unknown_fall_back_to_system() {
+        assert_eq!(
+            timezone_index(Some("Asia/Kolkata")),
+            TIMEZONES
+                .iter()
+                .position(|(_, z)| *z == "Asia/Kolkata")
+                .unwrap()
+        );
+        assert_eq!(timezone_index(None), 0);
+        assert_eq!(timezone_index(Some("Mars/Olympus")), 0);
+    }
+
+    #[test]
+    fn zones_resolve_with_expected_offsets() {
+        let noon_utc = chrono::Utc.with_ymd_and_hms(2026, 6, 1, 12, 0, 0).unwrap();
+        assert_eq!(
+            noon_utc
+                .with_timezone(&zone_from_name("Asia/Kolkata"))
+                .hour(),
+            17
+        );
+        assert_eq!(
+            noon_utc
+                .with_timezone(&zone_from_name("Pacific/Auckland"))
+                .hour(),
+            0
+        );
+        assert_eq!(zone_from_name("not-a-zone"), chrono_tz::Tz::UTC);
+        assert_eq!(zone_from_name("system"), zone_from_name(system_zone_name()));
     }
 
     #[test]

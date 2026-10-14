@@ -394,8 +394,10 @@ Set `FRAME_IDLE_DIM_SECONDS=0` to disable idle dimming. Night behavior is
 disabled unless both `FRAME_NIGHT_START` and `FRAME_NIGHT_END` are set,
 for example `22:00` and `06:00`. Within that window, idle brightness uses
 `FRAME_NIGHT_BRIGHTNESS` (10%) and automatic slides pause. Interaction
-still restores the day brightness. Hardware schedules use real local
-time; `FRAME_NOW` only shifts the dashboard preview. Custom night endpoints
+still restores the day brightness. The window is interpreted in the
+configured time zone (Settings tab; `System` follows the OS zone), and
+hardware schedules follow the same zone; `FRAME_NOW` only shifts the
+dashboard preview. Custom night endpoints
 inside a repeated daylight-saving hour can remain stale until input or
 the next boundary; use endpoints outside that hour.
 

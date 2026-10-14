@@ -8,6 +8,7 @@ export struct HourSlot { label: string, icon: string, temp: string }
 export struct Photo { image: image, full: image, thumb: image, title: string }
 export struct ThemeSwatch { name: string, bg: color, surface: color, ink: color, accent: color, rail: color }
 export struct FontChoice { label: string, family: string, use-body-font: bool }
+export struct TimeZoneRow { zones: [string] }
 
 export global Frame {
     in property <int> orientation-degrees;
@@ -74,6 +75,9 @@ export global Frame {
     in property <int> scale-index;
     in property <bool> clock24: true;
     in property <bool> dip;
+    in property <[TimeZoneRow]> timezone-rows;
+    in property <int> timezone-index;
+    in property <string> timezone-system-name;
 
     in-out property <int> active-tab;
 
@@ -89,4 +93,5 @@ export global Frame {
     callback pick-motion(int);
     callback pick-photo-transition(int);
     callback pick-screensaver-idle(int);
+    callback pick-timezone(int);
 }

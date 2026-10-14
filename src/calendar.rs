@@ -1,5 +1,5 @@
 use crate::household::PersonIdx;
-use chrono::{Duration, Local, NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 
 #[derive(Clone, Debug)]
 pub struct Event {
@@ -42,7 +42,9 @@ impl CalendarSource for DemoCalendar {
             people: people.to_vec(),
             heads_up: None,
         };
-        let today = Local::now().date_naive();
+        let today = Utc::now()
+            .with_timezone(&crate::settings::zone())
+            .date_naive();
         let mut events = if day == today + Duration::days(1) {
             vec![
                 ev(

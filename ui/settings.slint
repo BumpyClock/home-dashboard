@@ -129,6 +129,25 @@ component FontCard inherits Choice {
     }
 }
 
+component ZoneChip inherits Choice {
+    in property <string> label;
+    min-height: Size.segmented;
+    HorizontalLayout {
+        padding-left: Space.sm;
+        padding-right: Space.sm;
+        Body {
+            text: label;
+            size: Type.title;
+            font-weight: Type.weight-medium;
+            color: Theme.c.ink;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: elide;
+            opacity: root.pressed ? Alpha.pressed : 1;
+        }
+    }
+}
+
 component Section inherits VerticalLayout {
     in property <string> title;
     in property <string> hint;
@@ -255,6 +274,23 @@ export component SettingsScreen inherits Flickable {
                     options: ["Never", "1 min", "2 min", "5 min"];
                     selected: Frame.screensaver-idle-index;
                     picked(i) => { Frame.pick-screensaver-idle(i); }
+                }
+            }
+        }
+        Section {
+            title: "Time zone";
+            hint: "Clock, agenda, and night hours · system is " + Frame.timezone-system-name;
+            VerticalLayout {
+                spacing: Space.sm;
+                for row[r] in Frame.timezone-rows: HorizontalLayout {
+                    spacing: Space.sm;
+                    for z[i] in row.zones: ZoneChip {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        label: z;
+                        selected: r * 5 + i == Frame.timezone-index;
+                        picked => { Frame.pick-timezone(r * 5 + i); }
+                    }
                 }
             }
         }

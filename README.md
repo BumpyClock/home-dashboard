@@ -26,6 +26,7 @@ Useful env vars:
 | `FRAME_TAB=0..5` | Start on a tab: Home, Calendar, Photos, Lists, Meals, Settings. |
 | `FRAME_SETTINGS=path.json` | Settings file (default `~/.config/family-frame/settings.json`). |
 | `FRAME_PHOTOS=dir` | Folder of `.jpg`/`.jpeg` photos, oldest EXIF date first (default `assets/photos`, also the fallback when the folder is empty). Captions are the EXIF month and year. |
+| `FRAME_THUMB_CACHE=dir` | Directory for stored grid thumbnails, built once per photo version (default `$XDG_CACHE_HOME/family-frame/thumbs`, else `~/.cache/family-frame/thumbs`). Empty disables the store. |
 | `FRAME_SCREENSAVER=1` | Start in the screensaver (screenshots). |
 | `FRAME_FORCE_URGENT=1` | Pulse the "next up" dot as if an event is ≤15 min away. |
 | `FRAME_CACHE_MAIN_CONTENT=0` | Disable Agenda heading/rows, navigation button layouts, and Settings heading/card-body caches for comparison. Enabled by default in frame builds. Moving notches, Header, Chores, and animated control outlines draw directly. |

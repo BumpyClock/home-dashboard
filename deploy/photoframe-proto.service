@@ -13,6 +13,8 @@ Environment=SLINT_BACKEND=linuxkms-femtovg
 Environment=GALLIUM_DRIVER=lima
 Environment=FRAME_PHOTOS=/var/lib/photoframe-proto/photos
 Environment=FRAME_SETTINGS=/var/lib/photoframe-proto/settings.json
+Environment=FRAME_THUMB_CACHE=/var/cache/photoframe-proto/thumbs
+CacheDirectory=photoframe-proto
 ExecStart=/opt/photoframe-proto/current/photoframe_proto
 ExecStopPost=/opt/photoframe-proto/current/scripts/restore-backlight.sh
 TimeoutStopSec=15

@@ -70,6 +70,16 @@ Photos tab and during the screensaver, and grid thumbnails use their own
 128-entry, 28 MiB cache. These changes are source-supported; no frame
 capture of the Photos tab exists yet.
 
+Grid thumbnails persist on disk as 270×270 JPEGs (see `FRAME_THUMB_CACHE`),
+named by a hash of the photo's path, modification time, size, and the
+stored format. A photo is decoded at full size for its thumbnail once per
+version; later visits and restarts read the small file. When no display
+work is pending, the worker builds missing thumbnails one photo at a time
+and then deletes stored thumbnails for photos no longer in the playlist.
+During that one-time pass, new display demand can wait for one full-size
+decode. A first-boot `FRAME_BENCHMARK` capture is not quiescent until the
+pass finishes; check the store directory before comparing captures.
+
 Scroll motion has no simulation timer. The offset binding samples
 closed-form exponential coast and damped spring motion from
 `animation-tick()`. The existing 16 ms `Physics.step` calibrates friction;

@@ -11,6 +11,9 @@ use std::time::SystemTime;
 use crate::photo_load_state::{PhotoLoadState, PhotoSize};
 use crate::{AppWindow, Frame, Photo, Saver};
 
+mod thumb_store;
+use thumb_store::ThumbStore;
+
 const SCRIM_SVG: &[u8] = include_bytes!("../ui/images/photo-scrim.svg");
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -23,6 +26,10 @@ struct ThumbnailKey {
 }
 
 impl ThumbnailKey {
+    fn stored_name(&self) -> String {
+        ThumbStore::file_name(&self.path, self.modified, self.length, self.size.0)
+    }
+
     fn read(path: &Path, size: PhotoSize, baked: bool) -> std::io::Result<Self> {
         let path = path.canonicalize()?;
         let metadata = path.metadata()?;
@@ -137,6 +144,11 @@ struct Entry {
 }
 
 static PLAYLIST: OnceLock<Vec<Entry>> = OnceLock::new();
+static STORE: OnceLock<Option<ThumbStore>> = OnceLock::new();
+
+fn store() -> Option<&'static ThumbStore> {
+    STORE.get_or_init(ThumbStore::from_env).as_ref()
+}
 
 pub fn count() -> usize {
     PLAYLIST.get().map_or(0, Vec::len)
@@ -715,9 +727,24 @@ fn render(
             continue;
         }
         let key = ThumbnailKey::read(path, spec, scrim > 0).ok();
+        let stored = key
+            .as_ref()
+            .filter(|_| kind == Kind::Thumb)
+            .and_then(|key| Some((store()?, key.stored_name())));
         let cached = key
             .as_ref()
-            .and_then(|key| cache_for(kind).lock().unwrap().get(key));
+            .and_then(|key| cache_for(kind).lock().unwrap().get(key))
+            .or_else(|| {
+                let (store, name) = stored.as_ref()?;
+                let buf = store.load(name, w)?;
+                if let Some(key) = &key {
+                    cache_for(kind)
+                        .lock()
+                        .unwrap()
+                        .insert(key.clone(), buf.clone());
+                }
+                Some(buf)
+            });
         let rendered = cached
             .or_else(|| {
                 let image = decoded
@@ -727,7 +754,9 @@ fn render(
                             .ok()
                     })
                     .as_ref()?;
-                let mut buf = fit(image, w, h, || wanted(kind, spec))?;
+                // After the full decode, a thumbnail is worth finishing and storing even if
+                // its tile scrolled away; the cost is already paid.
+                let mut buf = fit(image, w, h, || kind == Kind::Thumb || wanted(kind, spec))?;
                 if scrim > 0 {
                     match raster_scrim(w, scrim.min(h)) {
                         Ok(scrim) => composite_scrim(&mut buf, &scrim),
@@ -739,6 +768,9 @@ fn render(
                 }
                 if let Some(key) = key {
                     if ThumbnailKey::read(path, spec, scrim > 0).ok().as_ref() == Some(&key) {
+                        if let Some((store, name)) = &stored {
+                            save_stored(store, name, &buf);
+                        }
                         cache_for(kind).lock().unwrap().insert(key, buf.clone());
                     }
                 }
@@ -757,18 +789,76 @@ fn render(
     out
 }
 
+fn save_stored(store: &ThumbStore, name: &str, buf: &Buffer) {
+    if let Err(error) = store.save(name, buf) {
+        eprintln!("[photos] cannot store thumbnail {name}: {error}");
+    }
+}
+
+/// Builds one missing stored thumbnail without publishing it. Returns `false` when it
+/// stopped early because `urgent` reported display work; the photo is retried later.
+fn warm_stored(store: &ThumbStore, path: &Path, urgent: impl Fn() -> bool) -> bool {
+    let Ok(key) = ThumbnailKey::read(path, (THUMB, THUMB, 0), false) else {
+        return true;
+    };
+    let name = key.stored_name();
+    if store.contains(&name) {
+        return true;
+    }
+    let Ok(image) =
+        decode_oriented(path).map_err(|e| eprintln!("[photos] {}: {e}", path.display()))
+    else {
+        return true;
+    };
+    let Some(buf) = fit(&image, THUMB, THUMB, || !urgent()) else {
+        return !urgent();
+    };
+    if urgent() {
+        return false;
+    }
+    save_stored(store, &name, &buf);
+    true
+}
+
+fn prune_stored(store: &ThumbStore, playlist: &[Entry]) {
+    let keep = playlist
+        .iter()
+        .filter_map(|entry| ThumbnailKey::read(&entry.path, (THUMB, THUMB, 0), false).ok())
+        .map(|key| key.stored_name())
+        .collect();
+    store.prune(&keep);
+}
+
 fn work(weak: slint::Weak<AppWindow>) {
     let playlist = PLAYLIST.get().map_or(&[][..], Vec::as_slice);
+    // While no demand is pending, store a thumbnail for every photo, one per pass, so
+    // demand is re-checked between decodes. This runs once per new or changed photo.
+    let mut warm = if store().is_some() { 0 } else { playlist.len() };
     loop {
         let step = {
             let mut shared = SHARED.lock().unwrap();
             loop {
                 let step = shared.step(playlist.len());
                 if step.job.is_some() || !step.evict.is_empty() || step.card_done.is_some() {
-                    break step;
+                    break Some(step);
+                }
+                if warm < playlist.len() {
+                    break None;
                 }
                 shared = DEMAND_CHANGED.wait(shared).unwrap();
             }
+        };
+        let Some(step) = step else {
+            if let Some(store) = store() {
+                let urgent = || SHARED.lock().unwrap().step(playlist.len()).job.is_some();
+                if warm_stored(store, &playlist[warm].path, urgent) {
+                    warm += 1;
+                }
+                if warm == playlist.len() {
+                    prune_stored(store, playlist);
+                }
+            }
+            continue;
         };
         let mut updates = Vec::new();
         if let Some(job) = &step.job {
@@ -862,8 +952,9 @@ fn work(weak: slint::Weak<AppWindow>) {
 #[cfg(test)]
 mod tests {
     use super::{
-        composite_scrim, cover, decode_oriented, exif_date, fit, raster_scrim, scan, taken, window,
-        Card, HaveSlot, Kind, Shared, ThumbnailCache, ThumbnailKey, Want, MAX_THUMBS, THUMB,
+        composite_scrim, cover, decode_oriented, exif_date, fit, raster_scrim, scan, taken,
+        warm_stored, window, Card, HaveSlot, Kind, Shared, ThumbStore, ThumbnailCache,
+        ThumbnailKey, Want, MAX_THUMBS, THUMB,
     };
     use image::{imageops, Rgb, RgbImage};
     use slint::{Rgb8Pixel, SharedPixelBuffer};
@@ -1162,6 +1253,22 @@ mod tests {
         std::fs::write(&padded, filled).unwrap();
         assert_eq!(taken(&padded), taken(&dated));
         assert!(taken(&padded).is_some());
+    }
+
+    #[test]
+    fn warm_pass_stores_once_and_yields_to_display_work() {
+        let fixture = PhotoFixture::new();
+        let store = ThumbStore::new(fixture.0.join("thumbs"));
+        let name = ThumbnailKey::read(&fixture.photo(), (THUMB, THUMB, 0), false)
+            .unwrap()
+            .stored_name();
+        assert!(!warm_stored(&store, &fixture.photo(), || true));
+        assert!(!store.contains(&name));
+        assert!(warm_stored(&store, &fixture.photo(), || false));
+        assert!(store.load(&name, THUMB).is_some());
+        assert!(warm_stored(&store, &fixture.photo(), || panic!(
+            "stored photo must not decode"
+        )));
     }
 
     fn resident_want(current: usize) -> Want {

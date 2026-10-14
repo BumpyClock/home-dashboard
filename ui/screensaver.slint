@@ -16,12 +16,11 @@ component TimeBlock inherits HorizontalLayout {
 }
 
 component Glance inherits VerticalLayout {
-    in property <bool> right;
     spacing: Space.md;
     alignment: end;
     HorizontalLayout {
         spacing: Space.lg;
-        alignment: right ? end : start;
+        alignment: end;
         Icon { name: Frame.weather-icon; width: Size.icon-saver; height: Size.icon-saver; colorize: Fixed.photo-fg; }
         Display { text: Frame.temp; size: Type.display-xl; color: Fixed.photo-fg; }
     }
@@ -30,14 +29,14 @@ component Glance inherits VerticalLayout {
         size: Type.title;
         font-weight: Type.weight-semibold;
         color: Fixed.photo-fg;
-        horizontal-alignment: right ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+        horizontal-alignment: right;
         overflow: elide;
     }
     Body {
         text: Frame.photos[Frame.photo-index].title;
         size: Type.body-l;
         color: Fixed.photo-fg-muted;
-        horizontal-alignment: right ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+        horizontal-alignment: right;
         overflow: elide;
     }
 }
@@ -88,14 +87,17 @@ component Screensaver inherits PhotoStage {
             TimeBlock { }
         }
         Rectangle { horizontal-stretch: 1; }
-        Glance { right: true; width: Size.saver-glance; }
+        Glance { width: Size.saver-glance; }
     }
-    if !wide: VerticalLayout {
+    if !wide: HorizontalLayout {
         padding: Space.saver;
         spacing: Space.xxl;
-        alignment: end;
-        TimeBlock { }
-        Glance { right: false; }
+        VerticalLayout {
+            horizontal-stretch: 0;
+            alignment: end;
+            TimeBlock { }
+        }
+        Glance { horizontal-stretch: 1; }
     }
     property <length> press-x;
     property <length> press-y;

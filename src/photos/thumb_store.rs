@@ -148,6 +148,7 @@ mod tests {
     use slint::{Rgb8Pixel, SharedPixelBuffer};
     use std::collections::HashSet;
     use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::{Duration, SystemTime};
 
     struct TempDir(PathBuf);
@@ -158,10 +159,13 @@ mod tests {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
-            Self(
-                std::env::temp_dir()
-                    .join(format!("photoframe-thumbs-{}-{unique}", std::process::id())),
-            )
+            // Parallel tests can read the same clock value; the counter keeps names distinct.
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
+            let serial = NEXT.fetch_add(1, Ordering::Relaxed);
+            Self(std::env::temp_dir().join(format!(
+                "photoframe-thumbs-{}-{unique}-{serial}",
+                std::process::id()
+            )))
         }
     }
 

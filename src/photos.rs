@@ -960,6 +960,7 @@ mod tests {
     use slint::{Rgb8Pixel, SharedPixelBuffer};
     use std::io::Write;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::{Duration, SystemTime};
 
     struct PhotoFixture(PathBuf);
@@ -970,8 +971,13 @@ mod tests {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
-            let dir = std::env::temp_dir()
-                .join(format!("photoframe-photos-{}-{unique}", std::process::id()));
+            // Parallel tests can read the same clock value; the counter keeps names distinct.
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
+            let serial = NEXT.fetch_add(1, Ordering::Relaxed);
+            let dir = std::env::temp_dir().join(format!(
+                "photoframe-photos-{}-{unique}-{serial}",
+                std::process::id()
+            ));
             std::fs::create_dir(&dir).unwrap();
             let image = RgbImage::from_fn(48, 32, |x, y| Rgb([(x * 5) as u8, (y * 7) as u8, 83]));
             let file = std::fs::File::create(dir.join("photo.jpg")).unwrap();

@@ -1,0 +1,17 @@
+// Screensaver and photo-grid state, written by the UI and by Rust (src/screensaver.rs).
+
+export global Saver {
+    in-out property <bool> active;
+    // Grid rows worth keeping thumbnails for (visible rows plus a margin).
+    in-out property <int> grid-first;
+    in-out property <int> grid-end;
+    in-out property <int> card-current: -1;
+    in-out property <int> card-previous: -1;
+    in-out property <int> full-current: -1;
+    in-out property <int> full-previous: -1;
+    in-out property <int> pixel-width;
+    in-out property <int> pixel-height;
+    // Something Rust decodes for changed: photo, tab, screensaver, grid range, window size.
+    callback demand();
+    callback swiped(float, float);
+}

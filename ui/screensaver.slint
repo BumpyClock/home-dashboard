@@ -1,0 +1,149 @@
+// Screensaver (design-notes 04): full-screen photo, large time,
+// a glance group (weather, next up) and the photo caption. At night the photo
+// is dimmed. Any tap dismisses. The only animation is
+// the photo transition; the clock changes once a minute.
+
+import { Theme } from "theme.slint";
+import { Frame } from "data.slint";
+import { Saver } from "saver.slint";
+import { Display, Body, Icon, PhotoStage } from "components.slint";
+import { Space, Size, Type, Alpha, Fixed, Motion, Physics } from "tokens.slint";
+
+component TimeBlock inherits HorizontalLayout {
+    spacing: Space.md;
+    alignment: start;
+    Display { text: Frame.clock; size: Type.saver-clock; color: Fixed.photo-fg; }
+    VerticalLayout {
+        alignment: end;
+        padding-bottom: Space.section;
+        Display { text: Frame.clock24 ? "" : Frame.ampm; size: Type.display-xl; color: Fixed.photo-fg-muted; }
+    }
+}
+
+component Glance inherits VerticalLayout {
+    in property <bool> right;
+    spacing: Space.md;
+    alignment: end;
+    HorizontalLayout {
+        spacing: Space.lg;
+        alignment: right ? end : start;
+        Icon { name: Frame.weather-icon; width: Size.icon-saver; height: Size.icon-saver; colorize: Fixed.photo-fg; }
+        Display { text: Frame.temp; size: Type.display-xl; color: Fixed.photo-fg; }
+    }
+    Body {
+        text: Frame.next-up;
+        size: Type.title;
+        font-weight: Type.weight-semibold;
+        color: Fixed.photo-fg;
+        horizontal-alignment: right ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+        overflow: elide;
+    }
+    Body {
+        text: Frame.photos[Frame.photo-index].title;
+        size: Type.body-l;
+        color: Fixed.photo-fg-muted;
+        horizontal-alignment: right ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+        overflow: elide;
+    }
+}
+
+component Screensaver inherits PhotoStage {
+    ready: Frame.photos[Frame.photo-index].full.width > 0;
+    live: true;
+    autoplay: Theme.ambient;
+    slide: Frame.photo-transition-slide;
+    interval: Motion.screensaver-interval;
+    background: Fixed.black;
+    property <bool> wide: self.width > self.height;
+    property <string> displayed: "\{root.current-index} \{root.previous-index} \{root.moving ? 1 : 0}";
+    function report-displayed() {
+        Saver.full-current = root.current-index;
+        Saver.full-previous = root.moving ? root.previous-index : -1;
+    }
+    changed displayed => { report-displayed(); }
+    init => { report-displayed(); }
+    // Window-sized pixels arrive after the first frame; the backdrop shows meanwhile.
+    pure function shown(i: int) -> image {
+        return Frame.photos[i].full.width > 0 ? Frame.photos[i].full
+            : Frame.photos[i].blur.width > 0 ? Frame.photos[i].blur
+            : Frame.photos[i].thumb.width > 0 ? Frame.photos[i].thumb : Frame.photos[i].image;
+    }
+    Image {
+        source: shown(root.previous-index);
+        image-fit: cover;
+        width: parent.width;
+        height: parent.height;
+        x: root.previous-x;
+        visible: root.moving;
+    }
+    Image {
+        source: shown(root.current-index);
+        image-fit: cover;
+        width: parent.width;
+        height: parent.height;
+        x: root.current-x;
+        opacity: root.current-opacity;
+    }
+    Rectangle { background: Fixed.black; opacity: Alpha.night-dim; visible: Frame.night-active; }
+    if wide: HorizontalLayout {
+        padding: Space.saver;
+        VerticalLayout {
+            alignment: end;
+            TimeBlock { }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        Glance { right: true; width: Size.saver-glance; }
+    }
+    if !wide: VerticalLayout {
+        padding: Space.saver;
+        spacing: Space.xxl;
+        alignment: end;
+        TimeBlock { }
+        Glance { right: false; }
+    }
+    property <length> press-x;
+    property <length> press-y;
+    property <bool> dragged;
+    TouchArea {
+        pointer-event(e) => {
+            if (e.kind == PointerEventKind.down) {
+                root.press-x = self.mouse-x;
+                root.press-y = self.mouse-y;
+                root.dragged = false;
+            } else if (e.kind == PointerEventKind.up) {
+                Saver.swiped((self.mouse-x - root.press-x) / 1px, (self.mouse-y - root.press-y) / 1px);
+            } else if (e.kind == PointerEventKind.cancel) {
+                root.dragged = true;
+            }
+        }
+        moved => {
+            if (self.pressed && (abs(self.mouse-x - root.press-x) >= Physics.tap-slop || abs(self.mouse-y - root.press-y) >= Physics.tap-slop)) {
+                root.dragged = true;
+            }
+        }
+        clicked => {
+            if (!root.dragged && abs(self.mouse-x - root.press-x) < Physics.tap-slop && abs(self.mouse-y - root.press-y) < Physics.tap-slop) {
+                Saver.active = false;
+            }
+        }
+    }
+}
+
+// Always present: tells Rust what to keep decoded, shows the screensaver on demand.
+export component SaverLayer inherits Rectangle {
+    clip: true;
+    property <string> demand: "\{Frame.photo-index} \{Saver.active ? 1 : 0} \{Frame.active-tab} \{Saver.grid-first} \{Saver.grid-end} \{Saver.card-current} \{Saver.card-previous} \{Saver.full-current} \{Saver.full-previous} \{Saver.pixel-width} \{Saver.pixel-height}";
+    function report-size() {
+        Saver.pixel-width = Math.ceil(self.width / 1phx);
+        Saver.pixel-height = Math.ceil(self.height / 1phx);
+    }
+    property <bool> active: Saver.active;
+    changed active => {
+        if (!active) { Saver.full-current = -1; Saver.full-previous = -1; }
+    }
+    changed width => { report-size(); }
+    changed height => { report-size(); }
+    changed demand => { Saver.demand(); }
+    init => { report-size(); Saver.demand(); }
+    if Saver.active: Screensaver { }
+}

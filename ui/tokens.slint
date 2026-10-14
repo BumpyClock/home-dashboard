@@ -1,0 +1,183 @@
+// Design tokens: every spacing, size, type, motion and physics value lives
+// here. Components reference these; edit a value once and it applies everywhere.
+
+// Spacing scale (padding, gaps, offsets). Named steps first, then one-offs.
+export global Space {
+    out property <length> xxs: 2px;
+    out property <length> tight: 3px;
+    out property <length> xs: 4px;
+    out property <length> sm: 6px;
+    out property <length> md: 8px;
+    out property <length> cozy: 10px;
+    out property <length> lg: 12px;
+    out property <length> row: 14px;
+    out property <length> xl: 16px;
+    out property <length> inset: 18px;      // photo overlay edge inset
+    out property <length> roomy: 20px;
+    out property <length> section: 22px;    // gap between settings sections
+    out property <length> xxl: 24px;
+    out property <length> gutter: 28px;     // rail inset, portrait page padding
+    out property <length> page: 36px;       // landscape / settings page padding
+    out property <length> saver: 48px;      // screensaver edge inset
+}
+
+// Corner radii.
+export global Radius {
+    out property <length> panel: 14px;  // weather, photo, choice cards, nav notch
+    out property <length> card: 12px;   // summary cards
+    out property <length> thumb: 10px;  // segmented control thumb
+    out property <length> item: 8px;    // agenda rows, empty state, previews
+}
+
+// Component dimensions, line weights, icon sizes.
+export global Size {
+    out property <length> rail-width: 88px;
+    out property <length> nav-item: 66px;
+    out property <length> bottom-nav: 84px;
+    out property <length> side-column: 372px;
+    out property <length> portrait-side: 340px;
+    out property <length> portrait-photo-row: 280px;
+    out property <length> window-w: 1280px;
+    out property <length> window-h: 800px;
+    out property <length> window-min: 560px;
+
+    out property <length> avatar: 24px;
+    out property <length> dot-event: 7px;     // event / list bullets, "now" pulse
+    out property <length> dot-pulse: 8px;     // header live dot
+    out property <length> dot-chore: 14px;    // chore day dot (and weekday letter column)
+    out property <length> pager-dot: 5px;
+    out property <length> pager-dot-active: 16px;
+    out property <float> halo-scale: 3;       // pulse halo size vs. dot
+
+    out property <length> icon-xs: 14px;
+    out property <length> icon-sm: 16px;
+    out property <length> icon-md: 18px;
+    out property <length> icon-lg: 22px;
+    out property <length> icon-xl: 40px;
+
+    out property <length> time-col-24h: 44px;      // agenda time column
+    out property <length> time-col-12h: 62px;
+    out property <length> mini-time-col-24h: 40px; // tomorrow list time column
+    out property <length> mini-time-col-12h: 58px;
+    out property <length> chore-who-col: 48px;
+    out property <length> photo-scrim: 180px;      // caption gradient height, capped by the card
+    out property <length> photo-caption-gap: 90px; // right padding, keeps text off the pager
+    out property <length> photo-tile-min: 220px;   // narrowest Photos-tab grid tile
+    out property <length> button: 48px;             // touch-sized button height
+    out property <length> saver-glance: 420px;      // landscape glance column width
+    out property <length> icon-saver: 48px;
+
+    out property <length> segmented: 56px;
+    out property <length> theme-card-min: 116px;
+    out property <length> theme-preview-min: 72px;
+    out property <length> font-card-min: 80px;
+
+    out property <length> line: 1px;        // hairlines, borders, rules
+    out property <length> line-mid: 1.5px;  // now line, ring dot
+    out property <length> line-bold: 2px;   // selected choice border
+}
+
+// Font sizes by role (before Theme.scale), weights, tracking.
+export global Type {
+    out property <length> clock: 76px;
+    out property <length> saver-clock: 150px;
+    out property <length> display-xl: 46px;  // greeting, temperature, page titles
+    out property <length> display-l: 26px;
+    out property <length> display-m: 24px;
+    out property <length> meridiem: 20px;
+    out property <length> sample: 28px;      // font preview, headline
+    out property <length> sample-body: 17px; // font preview, body
+    out property <length> title: 15px;
+    out property <length> body-l: 14px;
+    out property <length> body: 13px;
+    out property <length> caption: 12px;
+    out property <length> label: 11px;
+    out property <length> micro: 10px;
+
+    out property <int> weight-medium: 500;
+    out property <int> weight-semibold: 600;
+
+    out property <length> tracking-wide: 1.4px;   // dateline / eyebrow
+    out property <length> tracking-label: 1.2px;  // section labels
+}
+
+// Opacity levels.
+export global Alpha {
+    out property <float> dim: 0.5;     // past events, pressed "Add"
+    out property <float> pressed: 0.75;
+    out property <float> halo: 0.35;
+    out property <float> night-dim: 0.55;  // black over the night screensaver photo
+}
+
+// Colors that do not follow the theme (drawn over photos / tints).
+export global Fixed {
+    out property <color> photo-fg: #FBF9F5;
+    out property <color> photo-fg-muted: #E3DDD1;
+    out property <color> pager-idle: #FBF9F566;
+    out property <color> avatar-fg: #FFFFFF;
+    out property <color> browse-tint: #0A0C1099;  // dim over the blurred Photos backdrop
+    out property <color> browse-base: #0A0C10;
+    out property <color> glass: #FFFFFF1F;        // empty photo tile
+    out property <color> black: #000000;
+}
+
+// Durations by role. Always wrap in Theme.d(...) so Motion=Off zeroes them
+// (only `dip` is unwrapped, as before). Timer intervals are not wrapped.
+//
+// Easings are `easing` typed tokens below; changing one changes every user.
+export global Motion {
+    out property <easing> ease-standard: ease-out;                      // reveal fade, pulse halo, chore dot
+    out property <easing> ease-enter: ease-out-quint;                   // reveal rise
+    out property <easing> ease-state: ease-in-out;                      // agenda card fade, theme dip
+    out property <easing> ease-draw: ease-out-quart;                    // list strike-through draw
+    out property <easing> ease-crossfade: ease-in-out-sine;             // photo + caption crossfade
+    out property <easing> ease-spring: cubic-bezier(0.34, 1.3, 0.64, 1); // nav notch, bottom tab, segmented thumb
+    out property <easing> ease-spring-pop: cubic-bezier(0.34, 1.4, 0.64, 1); // photo pager dots
+
+    out property <duration> dip: 200ms;          // theme switch dip (not Theme.d-wrapped)
+    out property <duration> fast: 250ms;         // color / border fades
+    out property <duration> base: 300ms;
+    out property <duration> strike: 360ms;
+    out property <duration> reveal-fade: 450ms;
+    out property <duration> segmented-slide: 480ms;
+    out property <duration> state-fade: 500ms;   // agenda card past/next
+    out property <duration> pager: 520ms;
+    out property <duration> nav-slide: 560ms;
+    out property <duration> reveal-rise: 700ms;
+    out property <duration> caption-fade: 800ms;
+    out property <duration> crossfade: 1000ms;
+    out property <duration> ping: 1400ms;        // pulse halo expand
+
+    out property <duration> pulse-period: 2400ms;
+    out property <duration> pulse-period-urgent: 1600ms;
+    out property <int> pulse-count: 3;
+    out property <duration> slideshow-interval: 120s;
+    out property <duration> screensaver-interval: 20s;
+    out property <duration> scroll-idle-return: 15s;
+    out property <duration> scroll-ready: 120ms;
+
+    // launch stagger (Reveal delays)
+    out property <duration> reveal-settle: 40ms;  // added to every Reveal delay
+    out property <duration> delay-photo: 150ms;
+    out property <duration> delay-weather: 260ms;
+    out property <duration> delay-chores: 360ms;
+    out property <duration> delay-summary: 520ms;
+    out property <duration> agenda-first: 120ms;
+    out property <duration> agenda-step: 60ms;
+    out property <duration> settings-step: 80ms;
+}
+
+// PhysicsScroll constants (velocity in px per ms).
+export global Physics {
+    out property <duration> step: 16ms;     // coast decay reference interval
+    out property <float> friction: 0.965;   // velocity kept per step while coasting
+    out property <float> stiffness: 0.00025; // spring k (per ms²)
+    out property <float> damping: 0.028;    // just under critical, a hint of overshoot
+    out property <float> edge-resist: 0.35; // drag gain past either end
+    out property <float> release-keep: 0.6; // release velocity smoothing: old share
+    out property <float> release-new: 0.4;  //   and new share
+    out property <float> coast-stop: 0.02;  // stop coasting below this speed
+    out property <float> settle-speed: 0.01; // spring rest thresholds
+    out property <float> settle-distance: 0.5;
+    out property <length> tap-slop: 10px;   // a release this close to the press is a tap
+}

@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+"""Prepare isolated app and renderer crates for the selected pinned corrections."""
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+
+CRATE = "i-slint-renderer-femtovg"
+VERSION = "1.18.1"
+SOURCE_SHA256 = "30ee92fa6c8ce12c21fb7135f3696677131bb252d9ba34b7a5e0079687e3d82b"
+ORIGINAL_LINE = b"            .with_anti_alias(fit.source_to_target_x != 1. || fit.source_to_target_y != 0.);"
+PATCHED_LINE = b"            .with_anti_alias(fit.source_to_target_x != 1. || fit.source_to_target_y != 1.);"
+AA_PATCH_SHA256 = "f1285490a4167d88bb8161d9ec0bf7a0a94c8ed139c6ff81ea0647d0f87a316b"
+QUARTER_CRATE = "femtovg"
+QUARTER_VERSION = "0.27.0"
+QUARTER_SOURCE_SHA256 = "a2448395b61ba674fcb485336299e87a11dc5013d5dbf947385a2930ddef1e15"
+QUARTER_PATCH_SHA256 = "7b1850965583405d36ee4ecec1b8de6fada6c9ba6207c73a15295d8cca72c8ca"
+QUARTER_RESULT_SHA256 = "78fd3dbb1956b968f868bf8c810193c3ffabd5d1f7dbfcbf63ad57f2e26c0d6f"
+BUILD_INPUTS = ("Cargo.toml", "Cargo.lock", "build.rs", ".cargo", "src", "ui", "assets")
+
+
+def registry_crate(packages: list, name: str, version: str, output: Path) -> Path:
+    matches = [p for p in packages if p["name"] == name and p["version"] == version]
+    package_source = matches[0].get("source") if len(matches) == 1 else None
+    if not isinstance(package_source, str) or not package_source.startswith("registry+"):
+        raise ValueError(f"metadata must contain one registry package {name} {version}")
+    crate = Path(matches[0]["manifest_path"]).resolve(strict=True).parent
+    if output.is_relative_to(crate) or output.is_relative_to(crate.parents[2]):
+        raise ValueError("output must be outside the Cargo registry")
+    return crate
+
+
+def pinned_patch(path: Path, checksum: str) -> bytes:
+    patch = path.read_bytes().replace(b"\r\n", b"\n")
+    if hashlib.sha256(patch).hexdigest() != checksum:
+        raise ValueError(f"{path.name} checksum does not match the pinned patch")
+    return patch
+
+
+def prepare(source: Path, metadata_path: Path, output: Path, image_aa: bool = True, quarter_turn: bool = True) -> Path:
+    source = source.resolve(strict=True)
+    metadata_path = metadata_path.resolve(strict=True)
+    output = output.resolve()
+    if not source.is_dir() or output.is_relative_to(source):
+        raise ValueError("output must be outside the application source directory")
+
+    packages = json.loads(metadata_path.read_text(encoding="utf-8"))["packages"]
+    for package in packages:
+        if str(package.get("source", "")).startswith("registry+"):
+            crate = Path(package["manifest_path"]).resolve().parent
+            if len(crate.parents) >= 3 and output.is_relative_to(crate.parents[2]):
+                raise ValueError("output must be outside the Cargo registry")
+    selected = []
+    if image_aa:
+        crate = registry_crate(packages, CRATE, VERSION, output)
+        original = (crate / "itemrenderer.rs").read_bytes()
+        if hashlib.sha256(original).hexdigest() != SOURCE_SHA256 or original.count(ORIGINAL_LINE) != 1:
+            raise ValueError("Slint itemrenderer.rs checksum does not match the pinned source")
+        pinned_patch(source / "patches" / "slint-1.18.1-image-aa.patch", AA_PATCH_SHA256)
+        selected.append((CRATE, crate, original))
+    if quarter_turn:
+        crate = registry_crate(packages, QUARTER_CRATE, QUARTER_VERSION, output)
+        original = (crate / "src/lib.rs").read_bytes()
+        if hashlib.sha256(original).hexdigest() != QUARTER_SOURCE_SHA256:
+            raise ValueError("FemtoVG src/lib.rs checksum does not match the pinned source")
+        patch = pinned_patch(source / "patches" / "femtovg-0.27.0-quarter-turn-atlas.patch", QUARTER_PATCH_SHA256)
+        if not shutil.which("patch"):
+            raise ValueError("the patch tool is required for the quarter-turn correction")
+        selected.append((QUARTER_CRATE, crate, patch))
+
+    manifest = (source / "Cargo.toml").read_bytes()
+    if re.search(rb"(?m)^\s*\[\s*patch\.crates-io\s*\]", manifest):
+        raise ValueError("application already contains a [patch.crates-io] section")
+    for name in BUILD_INPUTS:
+        if not (source / name).exists():
+            raise ValueError(f"application build input missing: {name}")
+
+    output.mkdir(parents=True, exist_ok=True)
+    prepared = Path(tempfile.mkdtemp(prefix="femtovg-pinned-", dir=output))
+    ignore = shutil.ignore_patterns(".git", "target", "__pycache__", ".cargo-ok", ".cargo-checksum.json")
+    patch_entries = []
+    for name, crate, data in selected:
+        patched_crate = prepared / name
+        shutil.copytree(crate, patched_crate, ignore=ignore)
+        if name == CRATE:
+            (patched_crate / "itemrenderer.rs").write_bytes(data.replace(ORIGINAL_LINE, PATCHED_LINE))
+        else:
+            result = subprocess.run(
+                ["patch", "--batch", "--forward", "--fuzz=0", "--no-backup-if-mismatch", "--reject-file=-", "-p1"],
+                input=data, cwd=patched_crate, capture_output=True,
+            )
+            if result.returncode != 0:
+                raise ValueError(f"quarter-turn patch failed: {result.stderr.decode(errors='replace').strip()}")
+            if hashlib.sha256((patched_crate / "src/lib.rs").read_bytes()).hexdigest() != QUARTER_RESULT_SHA256:
+                raise ValueError("patched FemtoVG source checksum does not match")
+        patch_entries.append(f"{name} = {{ path = {json.dumps(patched_crate.as_posix())} }}\n")
+
+    app = prepared / "app-source"
+    app.mkdir()
+    # Copy build inputs only; repository metadata and generated artifacts stay out.
+    for name in BUILD_INPUTS:
+        entry = source / name
+        if entry.is_dir():
+            shutil.copytree(entry, app / name, ignore=ignore)
+        else:
+            shutil.copy2(entry, app / name)
+    patched_manifest = manifest
+    if patch_entries:
+        patched_manifest += ("\n[patch.crates-io]\n" + "".join(patch_entries)).encode()
+    (app / "Cargo.toml").write_bytes(patched_manifest)
+    return app
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("source", type=Path)
+    parser.add_argument("metadata", type=Path, help="cargo metadata --locked --offline JSON")
+    parser.add_argument("output", type=Path, help="external PF_BUILD_DIR")
+    parser.add_argument("--image-aa", choices=("0", "1"), default="1")
+    parser.add_argument("--quarter-turn", choices=("0", "1"), default="1")
+    args = parser.parse_args()
+    try:
+        print(prepare(args.source, args.metadata, args.output, args.image_aa == "1", args.quarter_turn == "1"))
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        print(f"prepare-femtovg-patch: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,153 @@
+// Family Frame — Slint dashboard matching the pen.dev "Family Dashboard"
+// frame (1280×800 landscape), with a portrait reflow. All data comes from
+// Rust via the `Frame` global (ui/data.slint); colors/fonts via `Theme`.
+
+import "fonts/InstrumentSerif-Regular.ttf";
+import "fonts/DMSerifDisplay-Regular.ttf";
+import "fonts/YoungSerif-Regular.ttf";
+import "fonts/Inter-Regular.ttf";
+import "fonts/Inter-Medium.ttf";
+import "fonts/Inter-SemiBold.ttf";
+import "fonts/AtkinsonHyperlegible-Regular.ttf";
+import "fonts/AtkinsonHyperlegible-Bold.ttf";
+
+import { Theme, Icons, Palette } from "theme.slint";
+import { Frame, Avatar, AgendaRow, MiniEvent, ListItem, DayDot, ChoreRow, HourSlot, Photo, ThemeSwatch, FontChoice } from "data.slint";
+import { Header, Agenda, PhotoCard, WeatherCard, ChoresBlock, Reveal, Display, Body, Icon } from "components.slint";
+import { Rail, BottomNav } from "nav.slint";
+import { SettingsScreen } from "settings.slint";
+import { PhotosScreen } from "photos_tab.slint";
+import { SaverLayer } from "screensaver.slint";
+import { Saver } from "saver.slint";
+import { Space, Size, Type, Motion } from "tokens.slint";
+
+export { Saver, Theme, Icons, Palette, Frame, Avatar, AgendaRow, MiniEvent, ListItem, DayDot, ChoreRow, HourSlot, Photo, ThemeSwatch, FontChoice }
+
+component HomeLandscape inherits HorizontalLayout {
+    padding: Space.page;
+    spacing: Space.page;
+    VerticalLayout {
+        horizontal-stretch: 1;
+        spacing: Space.xxl;
+        Header { vertical-stretch: 0; }
+        Agenda { vertical-stretch: 1; }
+    }
+    VerticalLayout {
+        width: Size.side-column;
+        spacing: Space.roomy;
+        PhotoCard { vertical-stretch: 1; }
+        WeatherCard { vertical-stretch: 0; }
+        ChoresBlock { vertical-stretch: 0; }
+    }
+}
+
+component HomePortrait inherits VerticalLayout {
+    padding: Space.gutter;
+    spacing: Space.section;
+    Header { vertical-stretch: 0; }
+    HorizontalLayout {
+        spacing: Space.xl;
+        height: Size.portrait-photo-row;
+        vertical-stretch: 0;
+        PhotoCard { horizontal-stretch: 1; }
+        VerticalLayout {
+            width: Size.portrait-side;
+            alignment: start;
+            WeatherCard { }
+        }
+    }
+    Agenda { vertical-stretch: 1; }
+    ChoresBlock { vertical-stretch: 0; }
+}
+
+// Calendar, Lists and Meals aren't built yet.
+component Placeholder inherits VerticalLayout {
+    in property <string> title;
+    in property <string> icon;
+    alignment: center;
+    spacing: Space.row;
+    Reveal {
+        VerticalLayout {
+            spacing: Space.row;
+            HorizontalLayout {
+                alignment: center;
+                Icon { name: icon; width: Size.icon-xl; height: Size.icon-xl; colorize: Theme.c.muted; }
+            }
+            Display { text: title; size: Type.display-xl; horizontal-alignment: center; }
+            Body {
+                text: "Not built yet. Home, Photos and Settings are live in this prototype.";
+                size: Type.title;
+                color: Theme.c.muted;
+                horizontal-alignment: center;
+            }
+        }
+    }
+}
+
+component Screen inherits Rectangle {
+    in property <bool> portrait;
+    property <int> active-tab: Frame.active-tab;
+    property <bool> settings-visited;
+    min-width: 0px;
+    min-height: 0px;
+    preferred-width: 0px;
+    preferred-height: 0px;
+    init => {
+        if (active-tab == 5) { settings-visited = true; }
+    }
+    changed active-tab => {
+        if (active-tab == 5) { settings-visited = true; }
+    }
+    // Retain screen state and renderer caches across tab changes.
+    if !portrait: HomeLandscape { visible: active-tab == 0; }
+    if portrait: HomePortrait { visible: active-tab == 0; }
+    if Frame.active-tab == 1: Placeholder { title: "Calendar"; icon: "calendar-days"; }
+    if Frame.active-tab == 2: PhotosScreen { }
+    if Frame.active-tab == 3: Placeholder { title: "Lists"; icon: "list-checks"; }
+    if Frame.active-tab == 4: Placeholder { title: "Meals"; icon: "utensils"; }
+    if active-tab == 5 || settings-visited: SettingsScreen {
+        visible: active-tab == 5;
+        width: root.width;
+        height: root.height;
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "Family Frame";
+    preferred-width: Size.window-w;
+    preferred-height: Size.window-h;
+    min-width: Size.window-min;
+    min-height: Size.window-min;
+    background: Theme.c.bg;
+    default-font-family: Theme.font-body;
+
+    scene := Rectangle {
+        property <bool> quarter-turn: Frame.orientation-degrees == 90 || Frame.orientation-degrees == 270;
+        property <bool> portrait: self.width < self.height;
+        width: quarter-turn ? root.height : root.width;
+        height: quarter-turn ? root.width : root.height;
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+        transform-rotation: Frame.orientation-degrees * 1deg;
+
+        if !scene.portrait: HorizontalLayout {
+            visible: !Saver.active;
+            Rail { }
+            Screen { horizontal-stretch: 1; portrait: false; }
+        }
+        if scene.portrait: VerticalLayout {
+            visible: !Saver.active;
+            Screen { vertical-stretch: 1; portrait: true; }
+            BottomNav { }
+        }
+
+        SaverLayer { }
+
+        // theme switch: dip to the page color, swap palette underneath, fade back
+        Rectangle {
+            background: Theme.c.bg;
+            opacity: Frame.dip ? 1 : 0;
+            animate opacity { duration: Motion.dip; easing: Motion.ease-state; }
+        }
+    }
+}

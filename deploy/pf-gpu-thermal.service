@@ -1,0 +1,16 @@
+[Unit]
+Description=PF1007L GPU thermal frequency limits
+After=systemd-modules-load.service pf-console-boot.service
+ConditionPathExists=/sys/class/devfreq/1c40000.gpu/max_freq
+
+[Service]
+Type=notify
+NotifyAccess=all
+TimeoutStartSec=120
+ExecStart=/usr/local/sbin/pf-gpu-thermal-limit
+Restart=on-failure
+RestartSec=1
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

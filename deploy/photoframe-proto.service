@@ -1,0 +1,25 @@
+[Unit]
+Description=Family Frame Slint dashboard
+Requires=pf-console-boot.service pf-gpu-thermal.service
+After=pf-console-boot.service pf-gpu-thermal.service getty@tty1.service
+Conflicts=getty@tty1.service
+StartLimitIntervalSec=30
+StartLimitBurst=3
+
+[Service]
+Type=exec
+WorkingDirectory=/opt/photoframe-proto/current
+Environment=SLINT_BACKEND=linuxkms-femtovg
+Environment=GALLIUM_DRIVER=lima
+Environment=FRAME_SIZE=800x1280
+Environment=FRAME_PHOTOS=/var/lib/photoframe-proto/photos
+Environment=FRAME_SETTINGS=/var/lib/photoframe-proto/settings.json
+ExecStart=/opt/photoframe-proto/current/photoframe_proto
+ExecStopPost=/opt/photoframe-proto/current/scripts/restore-backlight.sh
+TimeoutStopSec=15
+Restart=on-failure
+RestartSec=3
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

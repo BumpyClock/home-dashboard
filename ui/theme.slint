@@ -1,0 +1,70 @@
+// Theme + icon lookup. Rust swaps `Theme.c` / fonts / scale at runtime
+// (Settings tab); every component reads colors from here.
+
+export struct Palette {
+    bg: color,
+    surface: color,
+    card-hi: color,
+    ink: color,
+    muted: color,
+    line: color,
+    accent: color,
+    rail: color,
+    rail-fg: color,
+    weather-bg: color,
+    weather-fg: color,
+    weather-muted: color,
+    weather-sub: color,
+    weather-rule: color,
+    weather-icon: color,
+    dot-empty: color,
+}
+
+export global Theme {
+    // Defaults = "Linen" (the pen.dev design); Rust overrides from settings.
+    in-out property <Palette> c: {
+        bg: #F2EEE6, surface: #FBF9F5, card-hi: #FFFFFF, ink: #1D1C1A, muted: #6F6A61,
+        line: #E3DDD1, accent: #C9532D,
+        rail: #1D1C1A, rail-fg: #A9A399,
+        weather-bg: #1D1C1A, weather-fg: #FBF9F5, weather-muted: #A9A399, weather-sub: #D9D3C8,
+        weather-rule: #3A3834, weather-icon: #E9A88F, dot-empty: #E9E4DA,
+    };
+    in-out property <string> font-display: "Instrument Serif";
+    in-out property <string> font-body: "Inter";
+    in-out property <float> scale: 1.0;
+    in-out property <bool> motion: true;   // transitions (Full + Calm)
+    in-out property <bool> ambient: true;  // continuous loops: photo drift, pulses (Full only)
+
+    // Animation duration that collapses to 0 when motion is off.
+    public pure function d(t: duration) -> duration {
+        return motion ? t : 0ms;
+    }
+}
+
+// Lucide icons (ISC), embedded at compile time; Rust passes names only.
+export global Icons {
+    public pure function get(name: string) -> image {
+        if (name == "house") { return @image-url("icons/house.svg"); }
+        if (name == "calendar-days") { return @image-url("icons/calendar-days.svg"); }
+        if (name == "images") { return @image-url("icons/images.svg"); }
+        if (name == "list-checks") { return @image-url("icons/list-checks.svg"); }
+        if (name == "utensils") { return @image-url("icons/utensils.svg"); }
+        if (name == "settings") { return @image-url("icons/settings.svg"); }
+        if (name == "play") { return @image-url("icons/play.svg"); }
+        if (name == "plus") { return @image-url("icons/plus.svg"); }
+        if (name == "check") { return @image-url("icons/check.svg"); }
+        if (name == "sun") { return @image-url("icons/sun.svg"); }
+        if (name == "moon") { return @image-url("icons/moon.svg"); }
+        if (name == "cloud-sun") { return @image-url("icons/cloud-sun.svg"); }
+        if (name == "cloud-moon") { return @image-url("icons/cloud-moon.svg"); }
+        if (name == "cloud-fog") { return @image-url("icons/cloud-fog.svg"); }
+        if (name == "cloud-drizzle") { return @image-url("icons/cloud-drizzle.svg"); }
+        if (name == "cloud-rain") { return @image-url("icons/cloud-rain.svg"); }
+        if (name == "cloud-snow") { return @image-url("icons/cloud-snow.svg"); }
+        if (name == "cloud-lightning") { return @image-url("icons/cloud-lightning.svg"); }
+        if (name == "palette") { return @image-url("icons/palette.svg"); }
+        if (name == "type") { return @image-url("icons/type.svg"); }
+        if (name == "sparkles") { return @image-url("icons/sparkles.svg"); }
+        return @image-url("icons/cloud.svg");
+    }
+}

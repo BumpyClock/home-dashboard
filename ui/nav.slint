@@ -1,0 +1,170 @@
+// Nav rail with the "notch" active tab from the pen.dev design: the active
+// item is cut out of the rail in the page color, with inverted corners
+// above and below, and the whole notch slides between tabs.
+
+import { Theme } from "theme.slint";
+import { Frame } from "data.slint";
+import { Icon } from "components.slint";
+import { Space, Radius, Size, Type, Motion } from "tokens.slint";
+
+struct NavEntry { label: string, icon: string }
+
+component NavButton inherits Rectangle {
+    in property <NavEntry> entry;
+    in property <bool> active;
+    in property <length> pad-right: Space.md;
+    in property <length> pad-left;
+    in property <length> pad-top;
+    callback clicked();
+    height: Size.nav-item + pad-top;
+    VerticalLayout {
+        padding-right: pad-right;
+        padding-left: pad-left;
+        padding-top: pad-top;
+        spacing: Space.sm;
+        alignment: center;
+        HorizontalLayout {
+            alignment: center;
+            Icon {
+                name: entry.icon;
+                colorize: active ? Theme.c.ink : Theme.c.rail-fg;
+            }
+        }
+        Text {
+            text: entry.label;
+            font-family: Theme.font-body;
+            font-size: Type.label;
+            font-weight: Type.weight-medium;
+            horizontal-alignment: center;
+            color: active ? Theme.c.ink : Theme.c.rail-fg;
+        }
+    }
+    TouchArea { clicked => { root.clicked(); } }
+}
+
+export component Rail inherits Rectangle {
+    width: Size.rail-width;
+    background: Theme.c.rail;
+    property <[NavEntry]> top: [
+        { label: "Home", icon: "house" },
+        { label: "Calendar", icon: "calendar-days" },
+        { label: "Photos", icon: "images" },
+        { label: "Lists", icon: "list-checks" },
+        { label: "Meals", icon: "utensils" },
+    ];
+    property <length> item-h: Size.nav-item;
+    property <length> pad: Space.gutter;
+    property <length> gap: Space.sm;
+    property <int> settings-tab: 5;
+    property <length> notch-y: Frame.active-tab == settings-tab
+        ? root.height - pad - item-h
+        : pad + Frame.active-tab * (item-h + gap);
+
+    // the notch: pill + inverted corners, all in the page color
+    notch := Rectangle {
+        x: Space.md;
+        y: notch-y;
+        width: parent.width - Space.md;
+        height: item-h;
+        animate y { duration: Theme.d(Motion.nav-slide); easing: Motion.ease-spring; }
+        Rectangle {
+            background: Theme.c.bg;
+            border-top-left-radius: Radius.panel;
+            border-bottom-left-radius: Radius.panel;
+        }
+        Rectangle {
+            x: parent.width - Radius.panel;
+            y: -Radius.panel;
+            width: Radius.panel;
+            height: Radius.panel;
+            background: Theme.c.bg;
+            Rectangle { background: Theme.c.rail; border-bottom-right-radius: Radius.panel; }
+        }
+        Rectangle {
+            x: parent.width - Radius.panel;
+            y: parent.height;
+            width: Radius.panel;
+            height: Radius.panel;
+            background: Theme.c.bg;
+            Rectangle { background: Theme.c.rail; border-top-right-radius: Radius.panel; }
+        }
+    }
+
+    VerticalLayout {
+        cache-rendering-hint: Frame.cache-main-content && self.width <= 4096phx && self.height <= 4096phx;
+        padding-top: 0px;
+        padding-bottom: pad;
+        padding-left: 0px;
+        spacing: gap;
+        for e[i] in top: NavButton {
+            entry: e;
+            pad-left: Space.md;
+            pad-top: i == 0 ? pad : 0px;
+            active: Frame.active-tab == i;
+            clicked => { Frame.active-tab = i; }
+        }
+        Rectangle { vertical-stretch: 1; }
+        NavButton {
+            entry: { label: "Settings", icon: "settings" };
+            pad-left: Space.md;
+            active: Frame.active-tab == settings-tab;
+            clicked => { Frame.active-tab = settings-tab; }
+        }
+    }
+}
+
+// Portrait: same tabs along the bottom; the notch becomes a top-edge tab.
+export component BottomNav inherits Rectangle {
+    height: Size.bottom-nav;
+    background: Theme.c.rail;
+    property <[NavEntry]> all: [
+        { label: "Home", icon: "house" },
+        { label: "Calendar", icon: "calendar-days" },
+        { label: "Photos", icon: "images" },
+        { label: "Lists", icon: "list-checks" },
+        { label: "Meals", icon: "utensils" },
+        { label: "Settings", icon: "settings" },
+    ];
+    property <length> slot: (self.width - Space.lg * 2) / all.length;
+    Rectangle {
+        x: Space.lg + Frame.active-tab * slot;
+        y: 0;
+        width: slot;
+        height: parent.height - Space.cozy;
+        animate x { duration: Theme.d(Motion.nav-slide); easing: Motion.ease-spring; }
+        Rectangle {
+            background: Theme.c.bg;
+            border-bottom-left-radius: Radius.panel;
+            border-bottom-right-radius: Radius.panel;
+        }
+        Rectangle {
+            x: -Radius.panel;
+            y: 0;  // top edge, where the tab meets the page
+            width: Radius.panel;
+            height: Radius.panel;
+            background: Theme.c.bg;
+            Rectangle { background: Theme.c.rail; border-top-right-radius: Radius.panel; }
+        }
+        Rectangle {
+            x: parent.width;
+            y: 0;  // top edge, where the tab meets the page
+            width: Radius.panel;
+            height: Radius.panel;
+            background: Theme.c.bg;
+            Rectangle { background: Theme.c.rail; border-top-left-radius: Radius.panel; }
+        }
+    }
+    HorizontalLayout {
+        cache-rendering-hint: Frame.cache-main-content && self.width <= 4096phx && self.height <= 4096phx;
+        padding-left: Space.lg;
+        padding-right: Space.lg;
+        padding-bottom: Space.cozy;
+        for e[i] in all: NavButton {
+            horizontal-stretch: 1;
+            pad-right: 0px;
+            entry: e;
+            active: Frame.active-tab == i;
+            clicked => { Frame.active-tab = i; }
+        }
+    }
+}

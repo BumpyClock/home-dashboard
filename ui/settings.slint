@@ -1,0 +1,260 @@
+// Settings tab: theme, fonts, text size, clock format, motion.
+// Changes apply live and Rust persists them (src/settings.rs).
+
+import { Theme } from "theme.slint";
+import { Frame, ThemeSwatch, FontChoice } from "data.slint";
+import { Body, Display, Icon, Reveal } from "components.slint";
+import { Space, Radius, Size, Type, Alpha, Motion } from "tokens.slint";
+
+component Segmented inherits Rectangle {
+    in property <[string]> options;
+    in property <int> selected;
+    callback picked(int);
+    height: Size.segmented;
+    border-radius: Radius.panel;
+    background: Theme.c.surface;
+    border-width: Size.line;
+    border-color: Theme.c.line;
+    property <length> seg: (self.width - Space.md) / max(1, options.length);
+    Rectangle {
+        x: Space.xs + selected * seg;
+        y: Space.xs;
+        width: seg;
+        height: parent.height - Space.md;
+        border-radius: Radius.thumb;
+        background: Theme.c.ink;
+        animate x { duration: Theme.d(Motion.segmented-slide); easing: Motion.ease-spring; }
+    }
+    HorizontalLayout {
+        padding: Space.xs;
+        for o[i] in options: Rectangle {
+            horizontal-stretch: 1;
+            Body {
+                text: o;
+                size: Type.title;
+                font-weight: Type.weight-medium;
+                color: i == selected ? Theme.c.bg : Theme.c.ink;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                animate color { duration: Theme.d(Motion.fast); }
+            }
+            TouchArea { clicked => { picked(i); } }
+        }
+    }
+}
+
+component Choice inherits Rectangle {
+    in property <bool> selected;
+    out property <bool> pressed: ta.pressed;
+    callback picked();
+    min-width: body.min-width;
+    min-height: body.min-height;
+    preferred-width: body.preferred-width;
+    preferred-height: body.preferred-height;
+    body := Rectangle {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        cache-rendering-hint: Frame.cache-main-content && self.width <= 4096phx && self.height <= 4096phx;
+        border-radius: Radius.panel;
+        background: root.pressed ? Theme.c.surface.mix(Theme.c.bg, 1 - Alpha.pressed) : Theme.c.surface;
+        // Keep the original child insets; the animated outline draws separately.
+        border-width: root.selected ? Size.line-bold : Size.line;
+        border-color: transparent;
+        @children
+    }
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        border-radius: Radius.panel;
+        border-width: root.selected ? Size.line-bold : Size.line;
+        border-color: root.selected ? Theme.c.accent : Theme.c.line;
+        animate border-color { duration: Theme.d(Motion.fast); }
+    }
+    ta := TouchArea { clicked => { picked(); } }
+}
+
+component ThemeCard inherits Choice {
+    in property <ThemeSwatch> t;
+    min-height: Size.theme-card-min;
+    VerticalLayout {
+        padding: Space.cozy;
+        spacing: Space.cozy;
+        // mini dashboard preview in the theme's own colors
+        Rectangle {
+            vertical-stretch: 1;
+            min-height: Size.theme-preview-min;
+            border-radius: Radius.item;
+            background: t.bg;
+            // Only narrow previews need clipping; the rail owns its rounded edge.
+            clip: self.width < 82px || self.height < 72px;
+            Rectangle {
+                x: 0;
+                width: 16px;
+                background: t.rail;
+                border-top-left-radius: Radius.item;
+                border-bottom-left-radius: Radius.item;
+            }
+            Rectangle { x: 26px; y: 10px; width: 46px; height: 6px; border-radius: 3px; background: t.ink; }
+            Rectangle { x: 26px; y: 22px; width: 30px; height: 4px; border-radius: 2px; background: t.accent; }
+            Rectangle { x: 26px; y: 34px; width: parent.width - 72px; height: 12px; border-radius: 3px; background: t.surface; }
+            Rectangle { x: 26px; y: 50px; width: parent.width - 72px; height: 12px; border-radius: 3px; background: t.surface; }
+            Rectangle { x: parent.width - 38px; y: 10px; width: 28px; height: 52px; border-radius: 4px; background: t.rail; }
+        }
+        HorizontalLayout {
+            Body { text: t.name; size: Type.body-l; font-weight: Type.weight-medium; horizontal-stretch: 1; vertical-alignment: center; opacity: root.pressed ? Alpha.pressed : 1; }
+            if root.selected: Icon { name: "check"; width: Size.icon-sm; height: Size.icon-sm; colorize: Theme.c.accent; }
+        }
+    }
+}
+
+component FontCard inherits Choice {
+    in property <FontChoice> f;
+    in property <string> sample;
+    in property <length> sample-size: Type.sample;
+    min-height: Size.font-card-min;
+    VerticalLayout {
+        padding-left: Space.xl;
+        padding-right: Space.xl;
+        padding-top: Space.lg;
+        padding-bottom: Space.lg;
+        spacing: Space.sm;
+        alignment: center;
+        Text {
+            text: sample;
+            font-family: f.family == "" ? Theme.font-body : f.family;
+            font-size: sample-size;
+            color: Theme.c.ink;
+            opacity: root.pressed ? Alpha.pressed : 1;
+            overflow: elide;
+        }
+        Body { text: f.label; size: Type.caption; color: Theme.c.muted; opacity: root.pressed ? Alpha.pressed : 1; }
+    }
+}
+
+component Section inherits VerticalLayout {
+    in property <string> title;
+    in property <string> hint;
+    spacing: Space.lg;
+    HorizontalLayout {
+        cache-rendering-hint: Frame.cache-main-content && self.width <= 4096phx && self.height <= 4096phx;
+        spacing: Space.cozy;
+        Display { text: title; size: Type.display-m; vertical-alignment: bottom; }
+        Body { text: hint; color: Theme.c.muted; vertical-alignment: bottom; horizontal-stretch: 1; }
+    }
+    @children
+}
+
+export component SettingsScreen inherits Flickable {
+    content-width: self.width;
+    content-height: body.preferred-height;
+    body := VerticalLayout {
+        y: 0;
+        height: self.preferred-height;
+        padding: Space.page;
+        spacing: Space.section;
+        alignment: start;
+        Reveal {
+            VerticalLayout {
+                cache-rendering-hint: Frame.cache-main-content && self.width <= 4096phx && self.height <= 4096phx;
+                spacing: Space.sm;
+                Body { text: "PREFERENCES"; size: Type.caption; font-weight: Type.weight-semibold; letter-spacing: Type.tracking-wide; color: Theme.c.muted; }
+                Display { text: "Settings"; size: Type.display-xl; }
+                Body { text: "Changes apply instantly and are saved on this frame."; size: Type.body-l; color: Theme.c.muted; }
+            }
+        }
+        Reveal {
+            delay: Motion.settings-step;
+            Section {
+                title: "Theme";
+                hint: "Colors for the whole frame";
+                HorizontalLayout {
+                    spacing: Space.lg;
+                    for t[i] in Frame.themes: ThemeCard {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        preferred-width: 0px;
+                        t: t;
+                        selected: i == Frame.theme-index;
+                        picked => { Frame.pick-theme(i); }
+                    }
+                }
+            }
+        }
+        Reveal {
+            delay: Motion.settings-step * 2;
+            Section {
+                title: "Headline font";
+                hint: "Greeting, clock, section titles";
+                HorizontalLayout {
+                    spacing: Space.lg;
+                    for f[i] in Frame.display-fonts: FontCard {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        preferred-width: 0px;
+                        f: f;
+                        sample: "Good morning";
+                        selected: i == Frame.display-font-index;
+                        picked => { Frame.pick-display-font(i); }
+                    }
+                }
+            }
+        }
+        Reveal {
+            delay: Motion.settings-step * 3;
+            Section {
+                title: "Body font";
+                hint: "Events, lists, labels";
+                HorizontalLayout {
+                    spacing: Space.lg;
+                    for f[i] in Frame.body-fonts: FontCard {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        preferred-width: 0px;
+                        f: f;
+                        sample: "School run leaves in 18 min";
+                        sample-size: Type.sample-body;
+                        selected: i == Frame.body-font-index;
+                        picked => { Frame.pick-body-font(i); }
+                    }
+                }
+            }
+        }
+        Reveal {
+            delay: Motion.settings-step * 4;
+            HorizontalLayout {
+                spacing: Space.xxl;
+                Section {
+                    horizontal-stretch: 3;
+                    title: "Text size";
+                    Segmented {
+                        options: ["Standard", "Large", "Extra large"];
+                        selected: Frame.scale-index;
+                        picked(i) => { Frame.pick-scale(i); }
+                    }
+                }
+                Section {
+                    horizontal-stretch: 2;
+                    title: "Clock";
+                    Segmented {
+                        options: ["24-hour", "12-hour"];
+                        selected: Frame.clock24 ? 0 : 1;
+                        picked(i) => { Frame.pick-clock24(i == 0); }
+                    }
+                }
+                Section {
+                    horizontal-stretch: 2;
+                    title: "Motion";
+                    Segmented {
+                        options: ["Full", "Calm", "Off"];
+                        selected: Frame.motion-index;
+                        picked(i) => { Frame.pick-motion(i); }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,118 @@
+// Photos tab: the current photo blurred and dimmed behind a scrolling grid
+// of thumbnails (design-notes 04b). The blur is precomputed small in Rust;
+// no live blur on the frame's GPU. Tapping a tile or "Start slideshow"
+// opens the screensaver at that photo.
+
+import { Theme } from "theme.slint";
+import { Frame } from "data.slint";
+import { Saver } from "saver.slint";
+import { PhysicsScroll } from "scroll.slint";
+import { Display, Body, Icon } from "components.slint";
+import { Space, Radius, Size, Type, Alpha, Fixed } from "tokens.slint";
+
+export component PhotosScreen inherits Rectangle {
+    clip: true;
+    background: Fixed.browse-base;
+
+    property <length> gap: Space.row;
+    property <length> pad: Space.gutter;
+    property <int> cols: max(2, Math.floor((scroll.width - 2 * pad + gap) / (Size.photo-tile-min + gap)));
+    property <length> tile: (scroll.width - 2 * pad - (cols - 1) * gap) / cols;
+    property <length> pitch: tile + gap;
+    // visible rows plus one above and two below, so scrolling meets decoded thumbnails
+    property <int> first: max(0, Math.floor(-scroll.offset / pitch) - 1) * cols;
+    property <int> end: min(Frame.photos.length, (Math.floor((-scroll.offset + scroll.height) / pitch) + 3) * cols);
+    property <int> visible-count: max(0, end - first);
+    function report() {
+        Saver.grid-first = first;
+        Saver.grid-end = end;
+    }
+    changed first => { report(); }
+    changed end => { report(); }
+    init => { report(); }
+
+    Image {
+        source: Frame.photos[Frame.photo-index].blur;
+        image-fit: cover;
+        width: parent.width;
+        height: parent.height;
+    }
+    Rectangle { background: Fixed.browse-tint; }
+
+    VerticalLayout {
+        spacing: Space.xl;
+        HorizontalLayout {
+            padding: pad;
+            padding-bottom: 0px;
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                Display { text: "Photos"; size: Type.display-xl; color: Fixed.photo-fg; }
+                Body { text: "\{Frame.photos.length} photos"; size: Type.title; color: Fixed.photo-fg-muted; }
+            }
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    height: Size.button;
+                    border-radius: self.height / 2;
+                    background: start.pressed ? Theme.c.accent.darker(0.15) : Theme.c.accent;
+                    HorizontalLayout {
+                        padding-left: Space.xxl;
+                        padding-right: Space.xxl;
+                        spacing: Space.md;
+                        alignment: center;
+                        Icon { name: "play"; width: Size.icon-md; height: Size.icon-md; colorize: Fixed.photo-fg; y: (parent.height - self.height) / 2; }
+                        Body { text: "Start slideshow"; size: Type.body-l; font-weight: Type.weight-semibold; color: Fixed.photo-fg; vertical-alignment: center; }
+                    }
+                    start := TouchArea {
+                        enabled: Frame.photos.length > 0;
+                        clicked => { Saver.active = true; }
+                    }
+                }
+            }
+        }
+        scroll := PhysicsScroll {
+            vertical-stretch: 1;
+            tapped(x, y) => {
+                let col = Math.floor((x - pad) / pitch);
+                let row = Math.floor(y / pitch);
+                let i = row * cols + col;
+                let tile-x = x - pad - col * pitch;
+                let tile-y = y - row * pitch;
+                if (row >= 0 && col >= 0 && col < cols && tile-x >= 0px && tile-x < tile && tile-y >= 0px && tile-y < tile && i >= 0 && i < Frame.photos.length) {
+                    Frame.photo-direction = 1;
+                    Frame.photo-index = i;
+                    Saver.active = true;
+                }
+            }
+            Rectangle {
+                height: Frame.photos.length > 0 ? Math.ceil(Frame.photos.length / cols) * pitch + pad : scroll.height;
+                for slot[i] in root.visible-count: Rectangle {
+                    property <int> photo-index: root.first + i;
+                    x: pad + Math.mod(photo-index, cols) * pitch;
+                    y: Math.floor(photo-index / cols) * pitch;
+                    width: tile;
+                    height: tile;
+                    border-radius: Radius.item;
+                    clip: true;
+                    background: Fixed.glass;
+                    Image { source: Frame.photos[parent.photo-index].thumb; image-fit: cover; width: parent.width; height: parent.height; }
+                    // the photo showing now
+                    Rectangle {
+                        border-radius: parent.border-radius;
+                        border-width: parent.photo-index == Frame.photo-index ? Size.line-bold : 0px;
+                        border-color: Theme.c.accent;
+                    }
+                }
+                if Frame.photos.length == 0: Body {
+                    text: Frame.photos-loading ? "Loading photos…" : "No photos yet";
+                    color: Fixed.photo-fg-muted;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    width: parent.width;
+                    height: parent.height;
+                }
+            }
+        }
+    }
+}

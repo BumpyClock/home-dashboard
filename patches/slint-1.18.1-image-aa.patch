@@ -1,0 +1,11 @@
+--- a/itemrenderer.rs
++++ b/itemrenderer.rs
+@@ -1406,7 +1406,7 @@
+                 0.0,
+                 1.0,
+             )
+-            .with_anti_alias(fit.source_to_target_x != 1. || fit.source_to_target_y != 0.);
++            .with_anti_alias(fit.source_to_target_x != 1. || fit.source_to_target_y != 1.);
+
+             let mut path = femtovg::Path::new();
+             path.rect(

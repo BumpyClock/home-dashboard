@@ -1,0 +1,35 @@
+[package]
+name = "photoframe_proto"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+slint = { version = "1.18", default-features = false, features = ["std", "compat-1-18", "renderer-femtovg"] }
+chrono = "0.4"
+ureq = "3"
+serde_json = "1"
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { version = "0.2", optional = true }
+
+[build-dependencies]
+slint-build = "1.18"
+
+[features]
+default = ["desktop"]
+desktop = ["slint/default"]
+frame = ["slint/backend-linuxkms", "slint/backend-linuxkms-libinput", "dep:libc"]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# decode photos at release speed even in `cargo run`
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.zune-jpeg]
+opt-level = 3

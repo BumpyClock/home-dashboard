@@ -1,25 +1,17 @@
-//! Calendar boundary. The UI only sees `Event`s returned by a
-//! `CalendarSource`; swap `DemoCalendar` for a CalDAV / Google / ICS
-//! implementation later without touching the UI code.
-
 use chrono::{Duration, Local, NaiveDate, NaiveDateTime, NaiveTime};
+use crate::household::PersonIdx;
 
 #[derive(Clone, Debug)]
 pub struct Event {
     pub start: NaiveDateTime,
     pub end: Option<NaiveDateTime>,
     pub title: String,
-    /// Second line on the agenda card ("Neha driving", "Kitchen sink").
     pub detail: String,
-    /// Indexes into `household::PEOPLE`.
-    pub people: Vec<usize>,
-    /// Optional header phrasing, e.g. "School run leaves" → "School run leaves in 18 min".
+    pub people: Vec<PersonIdx>,
     pub heads_up: Option<String>,
 }
 
 impl Event {
-    /// When the event stops counting as upcoming. Events without an end
-    /// stay "current" for 30 minutes.
     pub fn ends(&self) -> NaiveDateTime {
         self.end.unwrap_or(self.start + Duration::minutes(30))
     }
@@ -32,18 +24,16 @@ pub trait CalendarSource {
     fn events_on(&self, day: NaiveDate) -> Vec<Event>;
 }
 
-/// Fake family calendar. Today and tomorrow follow the pen.dev design;
-/// it is anchored to the real current date so the "now" line moves.
 pub struct DemoCalendar;
 
 impl CalendarSource for DemoCalendar {
     fn events_on(&self, day: NaiveDate) -> Vec<Event> {
-        const ADITYA: usize = 0;
-        const NEHA: usize = 1;
-        const KABIR: usize = 2;
-        const MIRA: usize = 3;
+        const ADITYA: PersonIdx = PersonIdx::new(0);
+        const NEHA: PersonIdx = PersonIdx::new(1);
+        const KABIR: PersonIdx = PersonIdx::new(2);
+        const MIRA: PersonIdx = PersonIdx::new(3);
         let at = |h: u32, m: u32| day.and_time(NaiveTime::from_hms_opt(h, m, 0).unwrap());
-        let ev = |start: NaiveDateTime, end: Option<NaiveDateTime>, title: &str, detail: &str, people: &[usize]| Event {
+        let ev = |start: NaiveDateTime, end: Option<NaiveDateTime>, title: &str, detail: &str, people: &[PersonIdx]| Event {
             start,
             end,
             title: title.into(),

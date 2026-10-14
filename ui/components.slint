@@ -1,6 +1,3 @@
-// Building blocks for the dashboard, matching pen.dev components
-// (Agenda Item, Habit Row, Nav Rail) and frame sections.
-
 import { Theme, Icons } from "theme.slint";
 import { Frame, AgendaRow, Avatar, ChoreRow } from "data.slint";
 import { Saver } from "saver.slint";
@@ -29,34 +26,15 @@ export component Icon inherits Image {
     colorize: Theme.c.ink;
 }
 
-// Reveals + rises its content in once, after `delay`. Used for the launch
-// stagger and tab entry; instant when motion is off.
-export component Reveal inherits Rectangle {
-    in property <duration> delay;
-    in property <length> rise: Space.lg;
-    property <bool> shown: !Theme.motion;
-    Timer {
-        interval: delay + Motion.reveal-settle;
-        running: !shown && Theme.motion;
-        triggered => { shown = true; }
-    }
-    // the offset child doesn't report its size on its own; forward it
-    min-width: inner.min-width;
-    min-height: inner.min-height;
-    preferred-width: inner.preferred-width;
-    preferred-height: inner.preferred-height;
-    vertical-stretch: 0;
-    inner := VerticalLayout {
-        visible: shown || !Theme.motion;
-        width: root.width;
-        height: root.height;
-        y: shown || !Theme.motion ? 0px : rise;
-        animate y { duration: Theme.d(Motion.reveal-rise); easing: Motion.ease-enter; }
-        @children
-    }
+export component StaticDot inherits Rectangle {
+    in property <length> size: Size.dot-event;
+    in property <color> tint: Theme.c.accent;
+    width: size;
+    height: size;
+    border-radius: size / 2;
+    background: tint;
 }
 
-// Solid dot with an optional expanding halo ("live" indicator).
 export component PulseDot inherits Rectangle {
     in property <length> size: Size.dot-pulse;
     in property <color> tint: Theme.c.accent;
@@ -65,24 +43,21 @@ export component PulseDot inherits Rectangle {
     width: size;
     height: size;
     property <bool> ping;
-    // Each urgency episode gets three pulse starts. Hidden Home and Calm/Off
-    // retain pending starts and settle any active halo; returning resumes
-    // the remainder without replaying a pulse that already started.
-    property <int> pings;
     property <bool> animation-allowed: Theme.ambient && Frame.active-tab == 0;
-    changed pulsing => { pings = 0; ping = false; }
+    property <int> episode-pings;
+    property <bool> episode-spent: episode-pings >= Motion.pulse-count;
+    changed pulsing => { episode-pings = 0; ping = false; }
     changed animation-allowed => {
         if (!animation-allowed) { ping = false; }
     }
     Timer {
         interval: period;
-        running: pulsing && Theme.ambient && Frame.active-tab == 0 && (pings < Motion.pulse-count || ping);
+        running: pulsing && animation-allowed && (!episode-spent || ping);
         triggered => {
             ping = !ping;
-            if (ping) { pings += 1; }
+            if (ping) { episode-pings += 1; }
         }
     }
-    // halo: grows + fades on each ping, snaps back while invisible
     property <length> halo: ping ? size * Size.halo-scale : size;
     Rectangle {
         x: (parent.width - self.width) / 2;
@@ -91,13 +66,10 @@ export component PulseDot inherits Rectangle {
         height: halo;
         border-radius: self.width / 2;
         background: tint;
-        opacity: ping ? 0 : (pulsing && Theme.ambient && Frame.active-tab == 0 && pings < Motion.pulse-count ? Alpha.halo : 0);
-        animate width, height, opacity { duration: ping && Frame.active-tab == 0 && Theme.ambient ? Motion.ping : 0ms; easing: Motion.ease-standard; }
+        opacity: ping ? 0 : (pulsing && animation-allowed && !episode-spent ? Alpha.halo : 0);
+        animate width, height, opacity { duration: ping && animation-allowed ? Motion.ping : 0ms; easing: Motion.ease-standard; }
     }
-    Rectangle {
-        border-radius: size / 2;
-        background: tint;
-    }
+    StaticDot { size: root.size; tint: root.tint; }
 }
 
 export component AvatarDot inherits Rectangle {
@@ -107,11 +79,9 @@ export component AvatarDot inherits Rectangle {
     height: Size.avatar;
     border-radius: self.width / 2;
     background: past ? who.tint.mix(Theme.c.bg, Alpha.dim) : who.tint;
-    animate background { duration: Theme.d(Motion.state-fade); easing: Motion.ease-state; }
     Body {
         text: who.initial;
         color: past ? Fixed.avatar-fg.mix(Theme.c.bg, Alpha.dim) : Fixed.avatar-fg;
-        animate color { duration: Theme.d(Motion.state-fade); easing: Motion.ease-state; }
         size: Type.label;
         font-weight: Type.weight-semibold;
         horizontal-alignment: center;
@@ -126,7 +96,6 @@ export component AgendaCard inherits Rectangle {
     property <color> muted: data.past ? Theme.c.muted.mix(Theme.c.bg, Alpha.dim) : Theme.c.muted;
     background: data.past ? card-color.mix(Theme.c.bg, Alpha.dim) : card-color;
     border-radius: Radius.item;
-    animate background { duration: Theme.d(Motion.state-fade); easing: Motion.ease-state; }
     HorizontalLayout {
         padding-left: Space.xl;
         padding-right: Space.xl;
@@ -139,15 +108,14 @@ export component AgendaCard inherits Rectangle {
             size: Type.body;
             font-weight: Type.weight-semibold;
             color: root.ink;
-            animate color { duration: Theme.d(Motion.state-fade); easing: Motion.ease-state; }
-            vertical-alignment: center;
+                vertical-alignment: center;
         }
         VerticalLayout {
             horizontal-stretch: 1;
             spacing: Space.tight;
             alignment: center;
-            Body { text: data.title; size: Type.title; font-weight: Type.weight-medium; color: root.ink; overflow: elide; animate color { duration: Theme.d(Motion.state-fade); easing: Motion.ease-state; } }
-            Body { text: data.meta; size: Type.caption; color: root.muted; overflow: elide; animate color { duration: Theme.d(Motion.state-fade); easing: Motion.ease-state; } }
+            Body { text: data.title; size: Type.title; font-weight: Type.weight-medium; color: root.ink; overflow: elide; }
+            Body { text: data.meta; size: Type.caption; color: root.muted; overflow: elide; }
         }
         HorizontalLayout {
             spacing: Space.xs;
@@ -174,8 +142,7 @@ export component NowLine inherits HorizontalLayout {
     }
     VerticalLayout {
         alignment: center;
-        // static: a constant pulse would redraw all day on the frame
-        PulseDot { size: Size.dot-event; pulsing: false; }
+        StaticDot { }
     }
     VerticalLayout {
         horizontal-stretch: 1;
@@ -191,7 +158,6 @@ export component SectionLabel inherits Body {
     color: Theme.c.muted;
 }
 
-// "Tomorrow" + "Shared list" cards share this shell.
 export component SummaryCard inherits Rectangle {
     cache-rendering-hint: Frame.cache-dashboard;
     background: Theme.c.surface;
@@ -219,7 +185,7 @@ export component TomorrowCard inherits SummaryCard {
             spacing: Space.md;
             VerticalLayout {
                 alignment: center;
-                Rectangle { width: Size.dot-event; height: Size.dot-event; border-radius: Size.dot-event / 2; background: e.tint; }
+                StaticDot { tint: e.tint; }
             }
             Body {
                 text: e.time;
@@ -275,7 +241,6 @@ export component SharedListCard inherits SummaryCard {
                     color: item.done ? Theme.c.muted : Theme.c.ink;
                     animate color { duration: Theme.d(Motion.fast); }
                 }
-                // strike-through that draws across on check-off
                 Rectangle {
                     x: 0;
                     y: label.height / 2;
@@ -355,17 +320,14 @@ export component PhotoStage inherits Rectangle {
     out property <int> previous-index: -1;
     out property <bool> moving;
     out property <float> progress;
-    out property <float> caption-progress;
     property <int> direction: 1;
     out property <length> current-x: slide && moving ? direction * (1 - progress) * self.width : 0px;
     out property <length> previous-x: slide && moving ? -direction * progress * self.width : 0px;
     out property <float> current-opacity: slide || !moving ? 1 : progress;
-    out property <float> current-caption: moving ? caption-progress : 1;
-    out property <float> previous-caption: 1 - caption-progress;
     property <int> requested-index: Frame.photo-index;
+    property <bool> pending: current-index != requested-index;
     property <bool> motion-enabled: Theme.motion;
-    animate progress { duration: moving && live ? Theme.d(Motion.crossfade) : 0ms; easing: Motion.ease-crossfade; }
-    animate caption-progress { duration: moving && live ? Theme.d(Motion.caption-fade) : 0ms; easing: Motion.ease-crossfade; }
+    animate progress { duration: moving && live ? Theme.d(Motion.photo-transition) : 0ms; easing: Motion.ease-photo; }
     changed requested-index => {
         if (!moving) { start-transition(); }
     }
@@ -390,27 +352,23 @@ export component PhotoStage inherits Rectangle {
         direction = Frame.photo-direction;
         current-index = requested-index;
         progress = 0;
-        caption-progress = 0;
         moving = true;
         progress = 1;
-        caption-progress = 1;
     }
     init => { current-index = requested-index; }
     Timer {
-        interval: Motion.crossfade;
+        interval: Motion.photo-transition;
         running: moving && live;
         triggered => { moving = false; previous-index = -1; }
     }
-    // Coalesce rapid taps to the latest requested photo after the current
-    // transition, so every tap counts without drawing a third image.
     Timer {
-        interval: 1ms;
-        running: live && ready && !moving && current-index != requested-index;
+        interval: Motion.coalesce;
+        running: live && ready && !moving && pending;
         triggered => { start-transition(); }
     }
     Timer {
         interval: root.interval;
-        running: live && autoplay && !Frame.night-active && !Frame.benchmark-mode && Frame.photos.length > 1 && !moving && current-index == requested-index;
+        running: live && autoplay && !Frame.night-active && !Frame.benchmark-mode && Frame.photos.length > 1 && !moving && !pending;
         triggered => {
             Frame.photo-direction = 1;
             Frame.photo-index = Math.mod(Frame.photo-index + 1, Frame.photos.length);
@@ -418,11 +376,6 @@ export component PhotoStage inherits Rectangle {
     }
 }
 
-// Home slideshow card: crossfade or slide, tap to advance. Rust pre-scales
-// photos to this card's exact pixel size (see `photo-size-changed`), so drawing
-// is a 1:1 blit instead of a per-frame resample; only the two photos involved
-// in a transition are drawn. (Ken Burns drift was removed: ~78% CPU continuous
-// with the software renderer.)
 export component PhotoCard inherits PhotoStage {
     ready: Frame.photos[Frame.photo-index].image.width > 0;
     // Rectangular clipping uses a scissor; the page-colored ring below
@@ -440,6 +393,10 @@ export component PhotoCard inherits PhotoStage {
     }
     changed displayed => { report-displayed(); }
     property <length> physical-pixel: 1phx;
+    property <int> pager-photo-limit: 12;
+    pure function prescaled-extent(source: image, at-least: length) -> length {
+        return max(source.width * 1phx, at-least);
+    }
     function report-size() {
         Frame.photo-card-width = root.width / 1px;
         Frame.photo-card-height = root.height / 1px;
@@ -450,25 +407,22 @@ export component PhotoCard inherits PhotoStage {
     changed height => { report-size(); }
     changed physical-pixel => { report-size(); }
     init => { report-size(); report-displayed(); }
-    // Completed photos use unit physical scaling. During a resize, old
-    // photos still cover the card until the replacement decode arrives.
     Image {
         source: Frame.photos[root.previous-index].image;
         image-fit: cover;
-        width: max(self.source.width * 1phx, parent.width);
-        height: max(self.source.height * 1phx, parent.height);
+        width: prescaled-extent(self.source, parent.width);
+        height: prescaled-extent(self.source, parent.height);
         x: root.previous-x;
         visible: root.moving;
     }
     Image {
         source: Frame.photos[root.current-index].image;
         image-fit: cover;
-        width: max(self.source.width * 1phx, parent.width);
-        height: max(self.source.height * 1phx, parent.height);
+        width: prescaled-extent(self.source, parent.width);
+        height: prescaled-extent(self.source, parent.height);
         x: root.current-x;
         opacity: root.current-opacity;
     }
-    // Rasterized once by the SVG image cache; no positioned offscreen layer.
     Image {
         y: parent.height - self.height;
         width: parent.width;
@@ -477,20 +431,17 @@ export component PhotoCard inherits PhotoStage {
         image-fit: fill;
         visible: !Frame.photo-scrim-baked;
     }
-    for index[k] in [root.previous-index, root.current-index]: Display {
+    Display {
         y: parent.height - self.preferred-height - Space.xl;
-        x: Space.inset;
-        width: parent.width - Space.inset - Size.photo-caption-gap;
-        text: Frame.photos[index].title;
+        x: Space.photo-inset;
+        width: parent.width - Space.photo-inset - Size.photo-caption-gap;
+        text: Frame.photos[root.current-index].title;
         size: Type.display-m;
         color: Fixed.photo-fg;
         overflow: elide;
-        visible: k == 1 || root.moving;
-        opacity: k == 1 ? root.current-caption : root.previous-caption;
     }
-    // Dots only fit a small set; a long photo library shows none.
-    if Frame.photos.length <= 12: HorizontalLayout {
-        x: parent.width - self.preferred-width - Space.inset;
+    if Frame.photos.length <= pager-photo-limit: HorizontalLayout {
+        x: parent.width - self.preferred-width - Space.photo-inset;
         y: parent.height - Space.xxl;
         width: self.preferred-width;
         height: Size.pager-dot;
@@ -499,7 +450,6 @@ export component PhotoCard inherits PhotoStage {
             width: i == Frame.photo-index ? Size.pager-dot-active : Size.pager-dot;
             border-radius: Size.pager-dot / 2;
             background: i == Frame.photo-index ? Fixed.photo-fg : Fixed.pager-idle;
-            animate width, background { duration: Theme.d(Motion.pager); easing: Motion.ease-spring-pop; }
         }
     }
     if Frame.photos.length == 0: Body {
@@ -510,7 +460,6 @@ export component PhotoCard inherits PhotoStage {
         width: parent.width;
         height: parent.height;
     }
-    // Rounded corners: a page-colored ring masks the rectangular photo clip.
     Rectangle {
         x: -Radius.panel;
         y: -Radius.panel;
@@ -559,7 +508,7 @@ export component ChoresBlock inherits VerticalLayout {
                 spacing: Space.sm;
                 for l[i] in letters: Text {
                     text: l;
-                    width: Size.dot-chore;
+                    width: Size.chore-day-cell;
                     font-size: Type.micro;
                     font-weight: Type.weight-semibold;
                     font-family: Theme.font-body;
@@ -628,7 +577,6 @@ export component Header inherits HorizontalLayout {
     }
 }
 
-// Agenda: header, scrolling event list with the live "now" line, summary cards.
 export component Agenda inherits VerticalLayout {
     spacing: Space.md;
     HorizontalLayout {
@@ -638,16 +586,13 @@ export component Agenda inherits VerticalLayout {
         Rectangle { horizontal-stretch: 1; }
         Body { text: Frame.agenda-summary; color: Theme.c.muted; vertical-alignment: bottom; }
     }
-    // Past events sit above the now line and are scrolled out of view, so
-    // the next event is at the top. Drag to look back; it springs back after
-    // 15 s idle, and glides on when an event ends.
     list := PhysicsScroll {
         active: Frame.active-tab == 0;
+        cache-content: Frame.cache-main-content;
         vertical-stretch: 1;
-        // extra room so the now line can reach the top even when little is left
-        min-content-height: past.preferred-height + rows.spacing + self.height;
-        // offset that puts the now line at the top of the list
-        property <length> target: -(past.preferred-height + rows.spacing);
+        property <length> now-line-offset: past.preferred-height + rows.spacing;
+        min-content-height: now-line-offset + self.height;
+        property <length> target: -now-line-offset;
         property <bool> idle: true;
         property <bool> ready;
         changed target => { if (self.idle && self.ready) { self.scroll-to(self.target); } }
@@ -663,9 +608,6 @@ export component Agenda inherits VerticalLayout {
             triggered => { list.idle = true; list.scroll-to(list.target); }
         }
         rows := VerticalLayout {
-            // Offset belongs to PhysicsScroll's parent layout, so this cache
-            // holds all rows while the viewport translates and clips its quad.
-            cache-rendering-hint: Frame.cache-main-content && self.width <= 4096phx && self.height <= 4096phx;
             spacing: Space.md;
             alignment: start;
             past := VerticalLayout {
@@ -675,33 +617,24 @@ export component Agenda inherits VerticalLayout {
             if Frame.agenda-past.length > 0 || Frame.agenda-next.length > 0: NowLine { }
             upcoming := VerticalLayout {
                 spacing: Space.md;
-                for row[i] in Frame.agenda-next: Reveal {
-                    delay: Motion.agenda-first + i * Motion.agenda-step;
-                    AgendaCard { data: row; }
-                }
-                if Frame.agenda-next.length == 0: Reveal {
-                    delay: Motion.agenda-first;
-                    Rectangle {
-                        border-radius: Radius.item;
-                        border-width: Size.line;
-                        border-color: Theme.c.line;
-                        VerticalLayout {
-                            padding: Space.roomy;
-                            spacing: Space.xs;
-                            Body { text: Frame.agenda-done; size: Type.title; font-weight: Type.weight-medium; }
-                            Body { text: Frame.agenda-done-sub; size: Type.caption; color: Theme.c.muted; }
-                        }
+                for row in Frame.agenda-next: AgendaCard { data: row; }
+                if Frame.agenda-next.length == 0: Rectangle {
+                    border-radius: Radius.item;
+                    border-width: Size.line;
+                    border-color: Theme.c.line;
+                    VerticalLayout {
+                        padding: Space.roomy;
+                        spacing: Space.xs;
+                        Body { text: Frame.agenda-done; size: Type.title; font-weight: Type.weight-medium; }
+                        Body { text: Frame.agenda-done-sub; size: Type.caption; color: Theme.c.muted; }
                     }
                 }
             }
         }
     }
-    Reveal {
-        delay: Motion.delay-summary;
-        HorizontalLayout {
-            spacing: Space.lg;
-            TomorrowCard { horizontal-stretch: 1; min-width: 0px; preferred-width: 0px; }
-            SharedListCard { horizontal-stretch: 1; min-width: 0px; preferred-width: 0px; }
-        }
+    HorizontalLayout {
+        spacing: Space.lg;
+        TomorrowCard { horizontal-stretch: 1; min-width: 0px; preferred-width: 0px; }
+        SharedListCard { horizontal-stretch: 1; min-width: 0px; preferred-width: 0px; }
     }
 }

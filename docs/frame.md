@@ -432,7 +432,7 @@ thumbnails. The grid creates only nearby tiles. File paths and captions grow
 with the library; decoded image memory stays bounded. A single worker allows
 only one queued image batch and rejects results from outdated requests.
 While the slideshow is open, its requested full-screen photo loads first;
-hidden Home-card prefetch and blurred backdrops are paused.
+hidden Home-card prefetch is paused.
 Compressed JPEG input is capped at 32 MiB, source pixels at 64 MiB, resize
 intermediates at 32 MiB, and each output at 16 MiB with dimensions at most
 4096. Decode attempts beyond these limits stop without a retry loop.

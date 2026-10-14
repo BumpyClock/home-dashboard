@@ -14,6 +14,17 @@ and chores appear without entrance animations. Settings keeps its scroll
 position. Hidden Home animation timers stop, and urgent
 indicators stop after three pulses.
 
+Entry stagger (`Reveal`) is removed entirely: agenda rows, summary cards,
+placeholder screens, and Settings sections now appear instantly. Photo
+transitions run 500 ms (was 1000 ms) with no separate caption crossfade
+and no animated pager dots; the caption changes with the photo. Past-event
+and avatar color changes are instant instead of a 500 ms fade. The Photos
+tab backdrop is the solid browse color; the precomputed blur rendition
+(`Kind::Blur`, window÷8) and its decode work are deleted, and the
+screensaver's loading fallback is now thumb, then card image. These
+simplifications are design decisions accepted without A/B captures; no
+frame-rate claim is made for them yet.
+
 Stable summary and weather cards use independent caches controlled by
 `FRAME_CACHE_DASHBOARD`. The live Header and Chores draw directly.
 `FRAME_CACHE_MAIN_CONTENT` controls caches for the Agenda heading and static

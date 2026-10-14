@@ -1,7 +1,6 @@
-//! Screensaver startup and idle policy. Human input comes from the existing
-//! frame display observer; rotation only wakes the backlight.
-
-use slint::{ComponentHandle, Model, Timer, TimerMode};
+use slint::{ComponentHandle, Model, Timer};
+#[cfg(all(feature = "frame", target_os = "linux"))]
+use slint::TimerMode;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -37,47 +36,75 @@ fn swipe_target(index: i32, count: usize, dx: f32, dy: f32) -> Option<(i32, i32)
     ))
 }
 
+#[cfg(all(feature = "frame", target_os = "linux"))]
+const PHOTOS_LOADING_RETRY: Duration = Duration::from_secs(1);
+
 pub struct Guard {
     app: slint::Weak<AppWindow>,
     timer: Timer,
     idle_after: Option<Duration>,
 }
 
-impl Guard {
-    /// Arm only after a human input observer has been installed.
-    pub fn observe(self: &Rc<Self>) {
-        if let Some(delay) = self.idle_after {
-            self.arm(delay);
-        }
-    }
+#[cfg(all(feature = "frame", target_os = "linux"))]
+pub struct ActivityObserver {
+    _installed: (),
+}
 
-    fn arm(self: &Rc<Self>, delay: Duration) {
-        let weak = Rc::downgrade(self);
-        self.timer.start(TimerMode::SingleShot, delay, move || {
-            let Some(guard) = weak.upgrade() else {
-                return;
-            };
-            let Some(app) = guard.app.upgrade() else {
-                return;
-            };
-            if app.global::<Frame>().get_photos_loading() {
-                // A slow initial metadata scan must not consume the only idle
-                // deadline. Retry readiness without restarting the human wait.
-                guard.arm(Duration::from_secs(1));
-            } else if photos::count() > 0 {
-                app.global::<Saver>().set_active(true);
-            }
-        });
+#[cfg(all(feature = "frame", target_os = "linux"))]
+impl ActivityObserver {
+    pub fn install(saver: &Rc<Guard>, power: &Rc<crate::display_power::Guard>) -> Self {
+        let saver = saver.clone();
+        power.on_activity(move |dismiss| saver.activity(dismiss));
+        Self { _installed: () }
+    }
+}
+
+impl Guard {
+    #[cfg(all(feature = "frame", target_os = "linux"))]
+    pub fn observe(self: &Rc<Self>, _observer: &ActivityObserver) {
+        self.arm_after_idle();
     }
 
     /// Raw pointer input rearms; Slint's saver click handler owns pointer dismissal.
+    #[cfg(all(feature = "frame", target_os = "linux"))]
     pub fn activity(self: &Rc<Self>, dismiss: bool) {
         if dismiss {
             if let Some(app) = self.app.upgrade() {
                 app.global::<Saver>().set_active(false);
             }
         }
-        self.observe();
+        self.arm_after_idle();
+    }
+
+    #[cfg(all(feature = "frame", target_os = "linux"))]
+    fn arm_after_idle(self: &Rc<Self>) {
+        let Some(idle_after) = self.idle_after else { return };
+        let weak = Rc::downgrade(self);
+        self.timer.start(TimerMode::SingleShot, idle_after, move || {
+            if let Some(guard) = weak.upgrade() {
+                guard.show_or_wait_for_photos();
+            }
+        });
+    }
+
+    #[cfg(all(feature = "frame", target_os = "linux"))]
+    fn show_or_wait_for_photos(self: &Rc<Self>) {
+        let Some(app) = self.app.upgrade() else { return };
+        if app.global::<Frame>().get_photos_loading() {
+            self.retry_while_photos_loading();
+        } else if photos::count() > 0 {
+            app.global::<Saver>().set_active(true);
+        }
+    }
+
+    #[cfg(all(feature = "frame", target_os = "linux"))]
+    fn retry_while_photos_loading(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        self.timer.start(TimerMode::SingleShot, PHOTOS_LOADING_RETRY, move || {
+            if let Some(guard) = weak.upgrade() {
+                guard.show_or_wait_for_photos();
+            }
+        });
     }
 }
 

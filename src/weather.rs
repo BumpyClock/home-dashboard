@@ -1,6 +1,3 @@
-//! Live weather from Open-Meteo (no API key). Location via FRAME_LAT /
-//! FRAME_LON, label via FRAME_CITY. Offline → the demo values stay.
-
 use chrono::{Local, Timelike};
 use slint::{Model, ModelRc, SharedString, VecModel};
 use std::time::Duration;
@@ -44,6 +41,11 @@ fn weather_line(city: &str, hi: i64, lo: i64) -> String {
 
 const MAX_WEATHER_BYTES: u64 = 64 * 1024;
 
+const SLOT_STRIDE_H: usize = 3;
+const SLOT_COUNT: usize = 5;
+
+fn next_slot_boundary_h(now_h: usize) -> usize { (now_h / SLOT_STRIDE_H + 1) * SLOT_STRIDE_H }
+
 fn read_weather(body: &mut ureq::Body) -> Result<serde_json::Value, String> {
     let text = body.with_config().limit(MAX_WEATHER_BYTES).read_to_string().map_err(|e| e.to_string())?;
     serde_json::from_str(&text).map_err(|e| e.to_string())
@@ -85,7 +87,6 @@ pub fn spawn(weak: slint::Weak<AppWindow>) {
                     let hourly = &v["hourly"];
                     let code_at = |i: usize| hourly["weather_code"][i].as_i64();
 
-                    // second line: when the weather turns over the next 12 h
                     let ahead = (now_h + 1)..(now_h + 13);
                     let sub = if wet(code) {
                         match ahead.clone().find(|&i| code_at(i).is_some_and(|c| !wet(c))) {
@@ -99,10 +100,9 @@ pub fn spawn(weak: slint::Weak<AppWindow>) {
                         }
                     };
 
-                    // five slots on 3-hour marks, like the design (9 am … 9 pm)
-                    let first = (now_h / 3 + 1) * 3;
-                    let slots: Vec<HourSlot> = (0..5).filter_map(|k| {
-                        let i = first + k * 3;
+                    let first = next_slot_boundary_h(now_h);
+                    let slots: Vec<HourSlot> = (0..SLOT_COUNT).filter_map(|k| {
+                        let i = first + k * SLOT_STRIDE_H;
                         let t = num(&hourly["temperature_2m"][i])?;
                         let day = hourly["is_day"][i].as_i64().unwrap_or(1) == 1;
                         let (_, ic) = wmo(code_at(i)?, day);

@@ -1,12 +1,3 @@
-// Family Frame — Slint dashboard prototype matching the pen.dev
-// "Family Dashboard" design.
-//
-// Data seams (swap later for real feeds):
-//   calendar.rs  → `CalendarSource` (DemoCalendar today)
-//   household.rs → people, chores, shared list (demo)
-//   photos.rs    → real photos, decoded lazily around the one shown
-//   weather.rs   → live Open-Meteo
-//   settings.rs  → theme / fonts / text size / clock / motion, persisted
 mod calendar;
 mod frame_metrics;
 mod household;
@@ -38,7 +29,6 @@ use std::time::Duration;
 
 slint::include_modules!();
 
-/// Local time, optionally shifted by FRAME_NOW=HH:MM (preview other times of day).
 fn now() -> NaiveDateTime {
     use std::sync::OnceLock;
     static OFFSET: OnceLock<CDur> = OnceLock::new();
@@ -107,7 +97,7 @@ fn agenda_row(e: &Event, clock24: bool, next: bool, past: bool) -> AgendaRow {
         None => fmt_time(e.start, clock24),
     };
     let people: Vec<Avatar> = e.people.iter()
-        .map(|&p| Avatar { initial: s(PEOPLE[p].initial), tint: c(PEOPLE[p].color) })
+        .map(|&p| Avatar { initial: s(p.person().initial), tint: c(p.person().color) })
         .collect();
     AgendaRow {
         time: s(fmt_time(e.start, clock24)),
@@ -130,25 +120,23 @@ fn refresh_calendar(app: &AppWindow, st: &State) {
     let greet = match now.hour() { 0..=11 => "Good morning", 12..=16 => "Good afternoon", _ => "Good evening" };
     set_changed!(f, get_greeting, set_greeting, s(format!("{greet}, {}.", household::HOUSEHOLD)));
 
-    // first event not yet over = highlighted; the now line splits ended from the rest
-    let next_i = events.iter().position(|e| e.ends() > now);
-    let split = next_i.unwrap_or(events.len());
-    let row = |(i, e): (usize, &Event)| agenda_row(e, clock24, Some(i) == next_i, e.ends() <= now);
-    sync_by(&st.models.agenda_past, events.iter().enumerate().take(split).map(row).collect(), same_agenda);
-    sync_by(&st.models.agenda_next, events.iter().enumerate().skip(split).map(row).collect(), same_agenda);
+    let first_current = events.iter().position(|e| e.ends() > now);
+    let split_at_upcoming = first_current.unwrap_or(events.len());
+    let row = |(i, e): (usize, &Event)| agenda_row(e, clock24, Some(i) == first_current, e.ends() <= now);
+    sync_by(&st.models.agenda_past, events.iter().enumerate().take(split_at_upcoming).map(row).collect(), same_agenda);
+    sync_by(&st.models.agenda_next, events.iter().enumerate().skip(split_at_upcoming).map(row).collect(), same_agenda);
     set_changed!(f, get_agenda_done, set_agenda_done, s(if events.is_empty() { "Nothing on the calendar today." } else { "That's everything for today." }));
     set_changed!(f, get_agenda_done_sub, set_agenda_done_sub, s(match tomorrow.first() {
         Some(e) => format!("Tomorrow starts with {} at {}.", e.title, fmt_time(e.start, clock24)),
         None => "Tomorrow is clear too.".into(),
     }));
 
-    let mut who: Vec<usize> = events.iter().flat_map(|e| e.people.clone()).collect();
+    let mut who: Vec<_> = events.iter().flat_map(|e| e.people.clone()).collect();
     who.sort();
     who.dedup();
     set_changed!(f, get_agenda_summary, set_agenda_summary, s(format!("{} · {}", plural(events.len(), "event"), plural(who.len(), "person").replace("persons", "people"))));
 
-    // header "next up" line
-    let (text, urgent) = match next_i.map(|i| &events[i]) {
+    let (text, urgent) = match first_current.map(|i| &events[i]) {
         Some(e) if e.start <= now => (format!("{} — happening now", e.title), false),
         Some(e) => {
             let mins = (e.start - now).num_minutes().max(0) + 1;
@@ -167,30 +155,35 @@ fn refresh_calendar(app: &AppWindow, st: &State) {
     let tday = today + CDur::days(1);
     set_changed!(f, get_tomorrow_label, set_tomorrow_label, s(format!("TOMORROW · {}", tday.format("%a").to_string().to_uppercase())));
     set_changed!(f, get_tomorrow_count, set_tomorrow_count, s(plural(tomorrow.len(), "event")));
+    let nobody_tint = settings::themes()[st.settings.get().theme].1.muted;
     let minis: Vec<MiniEvent> = tomorrow.iter().take(3).map(|e| MiniEvent {
         time: s(fmt_time(e.start, clock24)),
         title: s(&e.title),
-        tint: c(e.people.first().map_or(0x6F6A61, |&p| PEOPLE[p].color)),
+        tint: e.people.first().map_or_else(
+            || nobody_tint,
+            |&p| c(p.person().color),
+        ),
     }).collect();
     sync(&st.models.tomorrow, minis);
 }
+
+const LIST_CARD_ROWS: usize = 3;
 
 fn refresh_lists(app: &AppWindow, st: &State) {
     let f = app.global::<Frame>();
     let list = st.list.borrow();
     let open = list.iter().filter(|e| !e.done).count();
     set_changed!(f, get_list_label, set_list_label, s(format!("SHARED LIST · {open} OPEN")));
-    // the card shows three rows; the header counts everything open
-    sync(&st.models.list, list.iter().take(3).map(|e| ListItem {
+    sync(&st.models.list, list.iter().take(LIST_CARD_ROWS).map(|e| ListItem {
         title: s(e.title), tint: c(PEOPLE[e.person].color), done: e.done,
     }).collect());
 
-    let today = now().weekday().num_days_from_monday() as usize;
-    set_changed!(f, get_today_index, set_today_index, today as i32);
+    let today = now().weekday();
+    set_changed!(f, get_today_index, set_today_index, today.num_days_from_monday() as i32);
     sync_by(&st.models.chores, st.chores.borrow().iter().map(|ch| {
         let tint = c(PEOPLE[ch.person].color);
-        let days: Vec<DayDot> = (0..7).map(|d| DayDot {
-            state: if ch.done[d] { 1 } else if d == today { 2 } else { 0 },
+        let days: Vec<DayDot> = household::MONDAY_FIRST.iter().map(|&d| DayDot {
+            state: if ch.done.is_done(d) { 1 } else if d == today { 2 } else { 0 },
             tint,
         }).collect();
         ChoreRow { name: s(ch.name), who: s(PEOPLE[ch.person].name), tint, days: ModelRc::new(VecModel::from(days)) }
@@ -218,7 +211,6 @@ fn apply_settings(app: &AppWindow, st: &State, animate_theme: bool) {
 
     let palette = settings::themes()[set.theme].1.clone();
     if animate_theme && theme.get_motion() && theme.get_c() != palette {
-        // dip to the old page color, swap underneath, fade back
         f.set_dip(true);
         let weak = app.as_weak();
         Timer::single_shot(Duration::from_millis(210), move || {
@@ -246,7 +238,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(all(feature = "frame", target_os = "linux"))]
     let termination_signals = shutdown::block_termination()?;
     let app = AppWindow::new()?;
-    let today = now().weekday().num_days_from_monday() as usize;
     let models = Models {
         agenda_past: Rc::new(VecModel::default()),
         agenda_next: Rc::new(VecModel::default()),
@@ -282,19 +273,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let st = Rc::new(State {
         settings: Cell::new(Settings::load()),
-        chores: RefCell::new(household::demo_chores(today)),
+        chores: RefCell::new(household::demo_chores(now().weekday())),
         list: RefCell::new(household::demo_list()),
         calendar: Box::new(DemoCalendar),
         models,
     });
 
-    // FRAME_SIZE=800x1280 → open at that size (e.g. preview portrait)
     if let Some((w, h)) = std::env::var("FRAME_SIZE").ok()
         .and_then(|v| v.split_once('x').and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))) {
         app.window().set_size(slint::LogicalSize::new(w, h));
     }
     apply_settings(&app, &st, false);
-    // photos: re-scale to the card's pixel size, debounced across resizes
     {
         let pending = Rc::new(Timer::default());
         let weak = app.as_weak();
@@ -323,7 +312,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     refresh_calendar(&app, &st);
     refresh_lists(&app, &st);
 
-    // Recompute after each tick so a delayed callback cannot accumulate drift.
     schedule_clock(app.as_weak(), st.clone());
 
     let f = app.global::<Frame>();
@@ -338,21 +326,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }};
     }
     macro_rules! setting {
-        ($setter:ident, |$set:ident, $arg:ident : $t:ty| $body:block, $refresh:expr) => {
+        ($setter:ident, |$set:ident, $arg:ident : $t:ty| $body:block, refresh_clock_and_calendar) => {
             on!($setter, |app, st, $arg: $t| {
                 let mut $set = st.settings.get();
                 $body
                 st.settings.set($set);
                 $set.save();
                 apply_settings(&app, st, true);
-                if $refresh { refresh_clock(&app, st); refresh_calendar(&app, st); }
+                refresh_clock(&app, st);
+                refresh_calendar(&app, st);
+            })
+        };
+        ($setter:ident, |$set:ident, $arg:ident : $t:ty| $body:block) => {
+            on!($setter, |app, st, $arg: $t| {
+                let mut $set = st.settings.get();
+                $body
+                st.settings.set($set);
+                $set.save();
+                apply_settings(&app, st, true);
             })
         };
     }
     on!(on_toggle_chore, |app, st, i: i32| {
         if let Some(ch) = st.chores.borrow_mut().get_mut(i as usize) {
-            let d = now().weekday().num_days_from_monday() as usize;
-            ch.done[d] = !ch.done[d];
+            ch.done.toggle(now().weekday());
         }
         refresh_lists(&app, st);
     });
@@ -361,12 +358,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         refresh_lists(&app, st);
     });
     f.on_add_item(|| eprintln!("[lists] Add tapped — item entry not built yet"));
-    setting!(on_pick_theme, |set, i: i32| { set.theme = i as usize; }, false);
-    setting!(on_pick_display_font, |set, i: i32| { set.display_font = i as usize; }, false);
-    setting!(on_pick_body_font, |set, i: i32| { set.body_font = i as usize; }, false);
-    setting!(on_pick_scale, |set, i: i32| { set.scale = i as usize; }, false);
-    setting!(on_pick_clock24, |set, v: bool| { set.clock24 = v; }, true);
-    setting!(on_pick_motion, |set, i: i32| { set.motion = i as usize; }, false);
+    setting!(on_pick_theme, |set, i: i32| { set.theme = i as usize; }, refresh_clock_and_calendar);
+    setting!(on_pick_display_font, |set, i: i32| { set.display_font = i as usize; });
+    setting!(on_pick_body_font, |set, i: i32| { set.body_font = i as usize; });
+    setting!(on_pick_scale, |set, i: i32| { set.scale = i as usize; });
+    setting!(on_pick_clock24, |set, v: bool| { set.clock24 = v; }, refresh_clock_and_calendar);
+    setting!(on_pick_motion, |set, i: i32| { set.motion = i as usize; });
 
     weather::spawn(app.as_weak());
     let _frame_metrics = frame_metrics::install(&app);
@@ -375,9 +372,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _display_power = {
         let guard: Option<Rc<display_power::Guard>> = display_power::start(&app).map(Rc::new);
         if let Some(guard) = &guard {
-            let saver = _screensaver.clone();
-            guard.on_activity(move |dismiss| saver.activity(dismiss));
-            _screensaver.observe();
+            _screensaver.observe(&screensaver::ActivityObserver::install(&_screensaver, guard));
         }
         if let Some(guard) = &guard {
             let weak = app.as_weak();

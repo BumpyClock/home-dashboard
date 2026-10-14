@@ -5,13 +5,12 @@ export struct Avatar { initial: string, tint: color }
 export struct AgendaRow { time: string, title: string, meta: string, people: [Avatar], next: bool, past: bool }
 export struct MiniEvent { time: string, title: string, tint: color }
 export struct ListItem { title: string, tint: color, done: bool }
-// state: 0 empty/future, 1 done, 2 today and still open
 export struct DayDot { state: int, tint: color }
 export struct ChoreRow { name: string, who: string, tint: color, days: [DayDot] }
 export struct HourSlot { label: string, icon: string, temp: string }
 // Only photos near the one on screen carry pixels; the rest are empty (src/photos.rs).
-// image = Home card size, full = screensaver, blur = Photos backdrop, thumb = grid tile.
-export struct Photo { image: image, full: image, blur: image, thumb: image, title: string }
+// image = Home card size, full = screensaver, thumb = grid tile.
+export struct Photo { image: image, full: image, thumb: image, title: string }
 export struct ThemeSwatch { name: string, bg: color, surface: color, ink: color, muted: color, accent: color, rail: color }
 // family "" = reuse the body font
 export struct FontChoice { label: string, family: string }
@@ -21,7 +20,6 @@ export global Frame {
     in property <bool> photos-loading: true;
     in-out property <int> photo-direction: 1;
 
-    // clock + header
     in property <string> clock: "07:42";
     in property <string> ampm;
     in property <string> now-short: "07:42";
@@ -30,7 +28,6 @@ export global Frame {
     in property <string> next-up: "School run leaves in 18 min";
     in property <bool> urgent;
 
-    // calendar
     in property <string> agenda-summary: "6 events · 4 people";
     in property <[AgendaRow]> agenda-past;  // ended, scrolled out of view
     in property <[AgendaRow]> agenda-next;  // ongoing + upcoming
@@ -40,13 +37,11 @@ export global Frame {
     in property <string> tomorrow-count: "3 events";
     in property <[MiniEvent]> tomorrow;
 
-    // lists + chores
     in property <string> list-label: "SHARED LIST · 5 OPEN";
     in property <[ListItem]> list;
     in property <[ChoreRow]> chores;
     in property <int> today-index: 1;
 
-    // photos
     in property <[Photo]> photos;
     in-out property <int> photo-index;
     in property <bool> photo-transition-slide: true;
@@ -61,7 +56,6 @@ export global Frame {
     in-out property <float> photo-scrim-height;
     callback photo-size-changed(length, length, length);
 
-    // weather
     in property <string> weather-line: "Bengaluru · H 27° L 19°";
     in property <string> temp: "23°";
     in property <string> cond: "Cloudy";
@@ -75,7 +69,6 @@ export global Frame {
         { label: "9 pm", icon: "cloud-moon", temp: "20°" },
     ];
 
-    // settings
     in property <[ThemeSwatch]> themes;
     in property <[FontChoice]> display-fonts;
     in property <[FontChoice]> body-fonts;
@@ -84,7 +77,7 @@ export global Frame {
     in property <int> body-font-index;
     in property <int> scale-index;
     in property <bool> clock24: true;
-    in property <bool> dip; // theme-change fade overlay
+    in property <bool> dip;
 
     in-out property <int> active-tab;
 

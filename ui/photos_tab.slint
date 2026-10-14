@@ -1,6 +1,5 @@
-// Photos tab: the current photo blurred and dimmed behind a scrolling grid
-// of thumbnails (design-notes 04b). The blur is precomputed small in Rust;
-// no live blur on the frame's GPU. Tapping a tile or "Start slideshow"
+// Photos tab: a scrolling grid of thumbnails on a solid backdrop
+// (design-notes 04b). Tapping a tile or "Start slideshow"
 // opens the screensaver at that photo.
 
 import { Theme } from "theme.slint";
@@ -8,7 +7,7 @@ import { Frame } from "data.slint";
 import { Saver } from "saver.slint";
 import { PhysicsScroll } from "scroll.slint";
 import { Display, Body, Icon } from "components.slint";
-import { Space, Radius, Size, Type, Alpha, Fixed } from "tokens.slint";
+import { Space, Radius, Size, Type, Fixed } from "tokens.slint";
 
 export component PhotosScreen inherits Rectangle {
     clip: true;
@@ -19,9 +18,10 @@ export component PhotosScreen inherits Rectangle {
     property <int> cols: max(2, Math.floor((scroll.width - 2 * pad + gap) / (Size.photo-tile-min + gap)));
     property <length> tile: (scroll.width - 2 * pad - (cols - 1) * gap) / cols;
     property <length> pitch: tile + gap;
-    // visible rows plus one above and two below, so scrolling meets decoded thumbnails
-    property <int> first: max(0, Math.floor(-scroll.offset / pitch) - 1) * cols;
-    property <int> end: min(Frame.photos.length, (Math.floor((-scroll.offset + scroll.height) / pitch) + 3) * cols);
+    property <int> decode-lag-rows: 1;
+    property <int> decode-lead-rows: 3;
+    property <int> first: max(0, Math.floor(-scroll.offset / pitch) - decode-lag-rows) * cols;
+    property <int> end: min(Frame.photos.length, (Math.floor((-scroll.offset + scroll.height) / pitch) + decode-lead-rows) * cols);
     property <int> visible-count: max(0, end - first);
     function report() {
         Saver.grid-first = first;
@@ -30,14 +30,6 @@ export component PhotosScreen inherits Rectangle {
     changed first => { report(); }
     changed end => { report(); }
     init => { report(); }
-
-    Image {
-        source: Frame.photos[Frame.photo-index].blur;
-        image-fit: cover;
-        width: parent.width;
-        height: parent.height;
-    }
-    Rectangle { background: Fixed.browse-tint; }
 
     VerticalLayout {
         spacing: Space.xl;
@@ -97,7 +89,6 @@ export component PhotosScreen inherits Rectangle {
                     clip: true;
                     background: Fixed.glass;
                     Image { source: Frame.photos[parent.photo-index].thumb; image-fit: cover; width: parent.width; height: parent.height; }
-                    // the photo showing now
                     Rectangle {
                         border-radius: parent.border-radius;
                         border-width: parent.photo-index == Frame.photo-index ? Size.line-bold : 0px;

@@ -1,6 +1,3 @@
-// Theme + icon lookup. Rust swaps `Theme.c` / fonts / scale at runtime
-// (Settings tab); every component reads colors from here.
-
 export struct Palette {
     bg: color,
     surface: color,
@@ -21,7 +18,6 @@ export struct Palette {
 }
 
 export global Theme {
-    // Defaults = "Linen" (the pen.dev design); Rust overrides from settings.
     in-out property <Palette> c: {
         bg: #F2EEE6, surface: #FBF9F5, card-hi: #FFFFFF, ink: #1D1C1A, muted: #6F6A61,
         line: #E3DDD1, accent: #C9532D,
@@ -32,16 +28,15 @@ export global Theme {
     in-out property <string> font-display: "Instrument Serif";
     in-out property <string> font-body: "Inter";
     in-out property <float> scale: 1.0;
-    in-out property <bool> motion: true;   // transitions (Full + Calm)
-    in-out property <bool> ambient: true;  // continuous loops: photo drift, pulses (Full only)
+    in-out property <bool> motion: true;
+    in-out property <bool> ambient: true;
 
-    // Animation duration that collapses to 0 when motion is off.
     public pure function d(t: duration) -> duration {
         return motion ? t : 0ms;
     }
 }
 
-// Lucide icons (ISC), embedded at compile time; Rust passes names only.
+// Lucide icons (ISC license).
 export global Icons {
     public pure function get(name: string) -> image {
         if (name == "house") { return @image-url("icons/house.svg"); }

@@ -1,7 +1,3 @@
-// Family Frame — Slint dashboard matching the pen.dev "Family Dashboard"
-// frame (1280×800 landscape), with a portrait reflow. All data comes from
-// Rust via the `Frame` global (ui/data.slint); colors/fonts via `Theme`.
-
 import "fonts/InstrumentSerif-Regular.ttf";
 import "fonts/DMSerifDisplay-Regular.ttf";
 import "fonts/YoungSerif-Regular.ttf";
@@ -13,7 +9,7 @@ import "fonts/AtkinsonHyperlegible-Bold.ttf";
 
 import { Theme, Icons, Palette } from "theme.slint";
 import { Frame, Avatar, AgendaRow, MiniEvent, ListItem, DayDot, ChoreRow, HourSlot, Photo, ThemeSwatch, FontChoice } from "data.slint";
-import { Header, Agenda, PhotoCard, WeatherCard, ChoresBlock, Reveal, Display, Body, Icon } from "components.slint";
+import { Header, Agenda, PhotoCard, WeatherCard, ChoresBlock, Display, Body, Icon } from "components.slint";
 import { Rail, BottomNav } from "nav.slint";
 import { SettingsScreen } from "settings.slint";
 import { PhotosScreen } from "photos_tab.slint";
@@ -60,52 +56,53 @@ component HomePortrait inherits VerticalLayout {
     ChoresBlock { vertical-stretch: 0; }
 }
 
-// Calendar, Lists and Meals aren't built yet.
 component Placeholder inherits VerticalLayout {
     in property <string> title;
     in property <string> icon;
     alignment: center;
     spacing: Space.row;
-    Reveal {
-        VerticalLayout {
-            spacing: Space.row;
-            HorizontalLayout {
-                alignment: center;
-                Icon { name: icon; width: Size.icon-xl; height: Size.icon-xl; colorize: Theme.c.muted; }
-            }
-            Display { text: title; size: Type.display-xl; horizontal-alignment: center; }
-            Body {
-                text: "Not built yet. Home, Photos and Settings are live in this prototype.";
-                size: Type.title;
-                color: Theme.c.muted;
-                horizontal-alignment: center;
-            }
+    VerticalLayout {
+        spacing: Space.row;
+        HorizontalLayout {
+            alignment: center;
+            Icon { name: icon; width: Size.icon-xl; height: Size.icon-xl; colorize: Theme.c.muted; }
         }
+        Display { text: title; size: Type.display-xl; horizontal-alignment: center; }
+        Body {
+            text: "Not built yet. Home, Photos and Settings are live in this prototype.";
+            size: Type.title;
+            color: Theme.c.muted;
+            horizontal-alignment: center;
+        }
+    }
+}
+
+component KeepAlive inherits Rectangle {
+    in property <bool> shown;
+    out property <bool> alive;
+    init => {
+        if (shown) { alive = true; }
+    }
+    changed shown => {
+        if (shown) { alive = true; }
     }
 }
 
 component Screen inherits Rectangle {
     in property <bool> portrait;
     property <int> active-tab: Frame.active-tab;
-    property <bool> settings-visited;
     min-width: 0px;
     min-height: 0px;
     preferred-width: 0px;
     preferred-height: 0px;
-    init => {
-        if (active-tab == 5) { settings-visited = true; }
-    }
-    changed active-tab => {
-        if (active-tab == 5) { settings-visited = true; }
-    }
-    // Retain screen state and renderer caches across tab changes.
     if !portrait: HomeLandscape { visible: active-tab == 0; }
     if portrait: HomePortrait { visible: active-tab == 0; }
     if Frame.active-tab == 1: Placeholder { title: "Calendar"; icon: "calendar-days"; }
     if Frame.active-tab == 2: PhotosScreen { }
     if Frame.active-tab == 3: Placeholder { title: "Lists"; icon: "list-checks"; }
     if Frame.active-tab == 4: Placeholder { title: "Meals"; icon: "utensils"; }
-    if active-tab == 5 || settings-visited: SettingsScreen {
+    settings-alive := KeepAlive { shown: active-tab == 5; }
+    if settings-alive.alive: SettingsScreen {
         visible: active-tab == 5;
         width: root.width;
         height: root.height;
@@ -143,7 +140,6 @@ export component AppWindow inherits Window {
 
         SaverLayer { }
 
-        // theme switch: dip to the page color, swap palette underneath, fade back
         Rectangle {
             background: Theme.c.bg;
             opacity: Frame.dip ? 1 : 0;

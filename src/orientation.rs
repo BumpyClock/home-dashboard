@@ -1,10 +1,9 @@
-//! Calibrated gravity poses select UI compensation; uncertain samples hold the last pose.
-
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 const GRAVITY: f64 = 9.80665;
+const DIAGONAL_DEAD_BAND: f64 = 0.82;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Axis {
@@ -75,8 +74,7 @@ impl Calibration {
         }
         let upright = self.upright.project(sample) / planar;
         let clockwise = self.clockwise.project(sample) / planar;
-        // Keep a dead band around diagonal poses even when the stand is tilted.
-        if upright.abs().max(clockwise.abs()) < 0.82 {
+        if upright.abs().max(clockwise.abs()) < DIAGONAL_DEAD_BAND {
             return None;
         }
         if upright.abs() > clockwise.abs() {
@@ -236,7 +234,6 @@ impl Sensor {
     fn read(&self, running: &AtomicBool) -> io::Result<Option<[f64; 3]>> {
         let mut sample = [0.0; 3];
         for (index, axis) in ["x", "y", "z"].iter().enumerate() {
-            // Raw reads wait two sensor periods; don't start another axis after stop.
             if !running.load(Ordering::Acquire) {
                 return Ok(None);
             }
@@ -347,7 +344,7 @@ mod runtime {
                     eprintln!("[orientation] sensor worker failed during shutdown");
                 }
             } else {
-                // Kernel I/O cannot be cancelled; inactive callbacks are already gated.
+                // Kernel I/O cannot be cancelled.
                 eprintln!("[orientation] sensor read exceeded shutdown deadline; worker detached");
             }
         }

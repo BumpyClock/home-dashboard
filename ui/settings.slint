@@ -1,9 +1,6 @@
-// Settings tab: theme, fonts, text size, clock format, motion.
-// Changes apply live and Rust persists them (src/settings.rs).
-
 import { Theme } from "theme.slint";
 import { Frame, ThemeSwatch, FontChoice } from "data.slint";
-import { Body, Display, Icon, Reveal } from "components.slint";
+import { Body, Display, Icon } from "components.slint";
 import { Space, Radius, Size, Type, Alpha, Motion } from "tokens.slint";
 
 component Segmented inherits Rectangle {
@@ -59,7 +56,6 @@ component Choice inherits Rectangle {
         cache-rendering-hint: Frame.cache-main-content && self.width <= 4096phx && self.height <= 4096phx;
         border-radius: Radius.panel;
         background: root.pressed ? Theme.c.surface.mix(Theme.c.bg, 1 - Alpha.pressed) : Theme.c.surface;
-        // Keep the original child insets; the animated outline draws separately.
         border-width: root.selected ? Size.line-bold : Size.line;
         border-color: transparent;
         @children
@@ -83,26 +79,24 @@ component ThemeCard inherits Choice {
     VerticalLayout {
         padding: Space.cozy;
         spacing: Space.cozy;
-        // mini dashboard preview in the theme's own colors
         Rectangle {
             vertical-stretch: 1;
             min-height: Size.theme-preview-min;
             border-radius: Radius.item;
             background: t.bg;
-            // Only narrow previews need clipping; the rail owns its rounded edge.
-            clip: self.width < 82px || self.height < 72px;
+            clip: self.width < Size.preview-clip-w || self.height < Size.theme-preview-min;
             Rectangle {
                 x: 0;
-                width: 16px;
+                width: Size.preview-rail-w;
                 background: t.rail;
                 border-top-left-radius: Radius.item;
                 border-bottom-left-radius: Radius.item;
             }
-            Rectangle { x: 26px; y: 10px; width: 46px; height: 6px; border-radius: 3px; background: t.ink; }
-            Rectangle { x: 26px; y: 22px; width: 30px; height: 4px; border-radius: 2px; background: t.accent; }
-            Rectangle { x: 26px; y: 34px; width: parent.width - 72px; height: 12px; border-radius: 3px; background: t.surface; }
-            Rectangle { x: 26px; y: 50px; width: parent.width - 72px; height: 12px; border-radius: 3px; background: t.surface; }
-            Rectangle { x: parent.width - 38px; y: 10px; width: 28px; height: 52px; border-radius: 4px; background: t.rail; }
+            Rectangle { x: Size.preview-x; y: Size.preview-top; width: Size.preview-title-w; height: Size.preview-title-h; border-radius: Radius.preview; background: t.ink; }
+            Rectangle { x: Size.preview-x; y: Size.preview-accent-y; width: Size.preview-accent-w; height: Size.preview-accent-h; border-radius: Radius.preview-sm; background: t.accent; }
+            Rectangle { x: Size.preview-x; y: Size.preview-card1-y; width: parent.width - Size.preview-cards-end; height: Size.preview-card-h; border-radius: Radius.preview; background: t.surface; }
+            Rectangle { x: Size.preview-x; y: Size.preview-card2-y; width: parent.width - Size.preview-cards-end; height: Size.preview-card-h; border-radius: Radius.preview; background: t.surface; }
+            Rectangle { x: parent.width - Size.preview-side-x; y: Size.preview-top; width: Size.preview-side-w; height: Size.preview-side-h; border-radius: Radius.preview-rail; background: t.rail; }
         }
         HorizontalLayout {
             Body { text: t.name; size: Type.body-l; font-weight: Type.weight-medium; horizontal-stretch: 1; vertical-alignment: center; opacity: root.pressed ? Alpha.pressed : 1; }
@@ -157,102 +151,88 @@ export component SettingsScreen inherits Flickable {
         padding: Space.page;
         spacing: Space.section;
         alignment: start;
-        Reveal {
-            VerticalLayout {
-                cache-rendering-hint: Frame.cache-main-content && self.width <= 4096phx && self.height <= 4096phx;
-                spacing: Space.sm;
-                Body { text: "PREFERENCES"; size: Type.caption; font-weight: Type.weight-semibold; letter-spacing: Type.tracking-wide; color: Theme.c.muted; }
-                Display { text: "Settings"; size: Type.display-xl; }
-                Body { text: "Changes apply instantly and are saved on this frame."; size: Type.body-l; color: Theme.c.muted; }
-            }
+        VerticalLayout {
+            cache-rendering-hint: Frame.cache-main-content && self.width <= 4096phx && self.height <= 4096phx;
+            spacing: Space.sm;
+            Body { text: "PREFERENCES"; size: Type.caption; font-weight: Type.weight-semibold; letter-spacing: Type.tracking-wide; color: Theme.c.muted; }
+            Display { text: "Settings"; size: Type.display-xl; }
+            Body { text: "Changes apply instantly and are saved on this frame."; size: Type.body-l; color: Theme.c.muted; }
         }
-        Reveal {
-            delay: Motion.settings-step;
-            Section {
-                title: "Theme";
-                hint: "Colors for the whole frame";
-                HorizontalLayout {
-                    spacing: Space.lg;
-                    for t[i] in Frame.themes: ThemeCard {
-                        horizontal-stretch: 1;
-                        min-width: 0px;
-                        preferred-width: 0px;
-                        t: t;
-                        selected: i == Frame.theme-index;
-                        picked => { Frame.pick-theme(i); }
-                    }
-                }
-            }
-        }
-        Reveal {
-            delay: Motion.settings-step * 2;
-            Section {
-                title: "Headline font";
-                hint: "Greeting, clock, section titles";
-                HorizontalLayout {
-                    spacing: Space.lg;
-                    for f[i] in Frame.display-fonts: FontCard {
-                        horizontal-stretch: 1;
-                        min-width: 0px;
-                        preferred-width: 0px;
-                        f: f;
-                        sample: "Good morning";
-                        selected: i == Frame.display-font-index;
-                        picked => { Frame.pick-display-font(i); }
-                    }
-                }
-            }
-        }
-        Reveal {
-            delay: Motion.settings-step * 3;
-            Section {
-                title: "Body font";
-                hint: "Events, lists, labels";
-                HorizontalLayout {
-                    spacing: Space.lg;
-                    for f[i] in Frame.body-fonts: FontCard {
-                        horizontal-stretch: 1;
-                        min-width: 0px;
-                        preferred-width: 0px;
-                        f: f;
-                        sample: "School run leaves in 18 min";
-                        sample-size: Type.sample-body;
-                        selected: i == Frame.body-font-index;
-                        picked => { Frame.pick-body-font(i); }
-                    }
-                }
-            }
-        }
-        Reveal {
-            delay: Motion.settings-step * 4;
+        Section {
+            title: "Theme";
+            hint: "Colors for the whole frame";
             HorizontalLayout {
-                spacing: Space.xxl;
-                Section {
-                    horizontal-stretch: 3;
-                    title: "Text size";
-                    Segmented {
-                        options: ["Standard", "Large", "Extra large"];
-                        selected: Frame.scale-index;
-                        picked(i) => { Frame.pick-scale(i); }
-                    }
+                spacing: Space.lg;
+                for t[i] in Frame.themes: ThemeCard {
+                    horizontal-stretch: 1;
+                    min-width: 0px;
+                    preferred-width: 0px;
+                    t: t;
+                    selected: i == Frame.theme-index;
+                    picked => { Frame.pick-theme(i); }
                 }
-                Section {
-                    horizontal-stretch: 2;
-                    title: "Clock";
-                    Segmented {
-                        options: ["24-hour", "12-hour"];
-                        selected: Frame.clock24 ? 0 : 1;
-                        picked(i) => { Frame.pick-clock24(i == 0); }
-                    }
+            }
+        }
+        Section {
+            title: "Headline font";
+            hint: "Greeting, clock, section titles";
+            HorizontalLayout {
+                spacing: Space.lg;
+                for f[i] in Frame.display-fonts: FontCard {
+                    horizontal-stretch: 1;
+                    min-width: 0px;
+                    preferred-width: 0px;
+                    f: f;
+                    sample: "Good morning";
+                    selected: i == Frame.display-font-index;
+                    picked => { Frame.pick-display-font(i); }
                 }
-                Section {
-                    horizontal-stretch: 2;
-                    title: "Motion";
-                    Segmented {
-                        options: ["Full", "Calm", "Off"];
-                        selected: Frame.motion-index;
-                        picked(i) => { Frame.pick-motion(i); }
-                    }
+            }
+        }
+        Section {
+            title: "Body font";
+            hint: "Events, lists, labels";
+            HorizontalLayout {
+                spacing: Space.lg;
+                for f[i] in Frame.body-fonts: FontCard {
+                    horizontal-stretch: 1;
+                    min-width: 0px;
+                    preferred-width: 0px;
+                    f: f;
+                    sample: "School run leaves in 18 min";
+                    sample-size: Type.sample-body;
+                    selected: i == Frame.body-font-index;
+                    picked => { Frame.pick-body-font(i); }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: Space.xxl;
+            Section {
+                horizontal-stretch: 3;
+                title: "Text size";
+                Segmented {
+                    options: ["Standard", "Large", "Extra large"];
+                    selected: Frame.scale-index;
+                    picked(i) => { Frame.pick-scale(i); }
+                }
+            }
+            Section {
+                horizontal-stretch: 2;
+                title: "Clock";
+                Segmented {
+                    options: ["24-hour", "12-hour"];
+                    selected: Frame.clock24 ? 0 : 1;
+                    picked(i) => { Frame.pick-clock24(i == 0); }
+                }
+            }
+            Section {
+                horizontal-stretch: 2;
+                title: "Motion";
+                Segmented {
+                    options: ["Full", "Calm", "Off"];
+                    selected: Frame.motion-index;
+                    picked(i) => { Frame.pick-motion(i); }
                 }
             }
         }

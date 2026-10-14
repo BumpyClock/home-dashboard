@@ -6,7 +6,6 @@ use crate::{AgendaRow, ChoreRow};
 
 pub fn until_next_minute(now: NaiveDateTime) -> Duration {
     let elapsed_ms = u64::from(now.second()) * 1000 + u64::from(now.nanosecond()) / 1_000_000;
-    // Round up to the timer's millisecond resolution, never before the boundary.
     Duration::from_millis(60_000_u64.saturating_sub(elapsed_ms).max(1))
 }
 

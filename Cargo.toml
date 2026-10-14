@@ -28,7 +28,6 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
-# decode photos at release speed even in `cargo run`
 [profile.dev.package.image]
 opt-level = 3
 [profile.dev.package.zune-jpeg]

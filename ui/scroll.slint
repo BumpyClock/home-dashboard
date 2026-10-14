@@ -9,11 +9,13 @@
 import { Theme } from "theme.slint";
 import { Physics } from "tokens.slint";
 
+enum ScrollMode { idle, coasting, spring }
+
 export component PhysicsScroll inherits Rectangle {
-    // extra scrollable room below the content (e.g. so a row can reach the top)
     in property <length> min-content-height;
     in property <bool> active: true;
-    out property <length> offset: mode == 0 ? position : (mode == 1 ? clamp-y(sample-position(elapsed)) : sample-position(elapsed));
+    in property <bool> cache-content: false;
+    out property <length> offset: mode == ScrollMode.idle ? position : (mode == ScrollMode.coasting ? clamp-y(sample-position(elapsed)) : sample-position(elapsed));
     out property <bool> dragging: ta.pressed;
     callback user-scrolled();
     // content-space press position, for releases that did not drag
@@ -24,79 +26,77 @@ export component PhysicsScroll inherits Rectangle {
     property <length> lo: min(0px, root.height - content-h);
     property <length> hi: 0px;
 
-    // motion state; velocity in px per ms
-    property <float> v;
+    property <float> velocity-px-per-ms;
     property <length> position;
-    property <int> mode;          // 0 idle, 1 coasting, 2 spring to `anchor`
+    property <ScrollMode> mode;
     property <length> anchor;
     property <length> last-y;
     property <length> down-y;
     property <length> down-x;
     property <bool> tap-moved;
-    property <bool> catching;  // the press stopped a coasting list, so it is not a tap
+    property <bool> pressed-during-motion;
     property <duration> last-t;
     property <duration> motion-t;
     property <bool> motion-enabled: Theme.motion;
-    property <duration> elapsed: active && motion-enabled && mode != 0 ? max(0ms, animation-tick() - motion-t) : 0ms;
-    property <float> coast-rate: -ln(Physics.friction) / (Physics.step / 1ms);
-    property <float> decay: Physics.damping / 2;
-    // The fixed Physics tokens select an underdamped spring.
-    property <float> frequency: sqrt(Physics.stiffness - decay * decay);
+    property <duration> elapsed: active && motion-enabled && mode != ScrollMode.idle ? max(0ms, animation-tick() - motion-t) : 0ms;
+    property <float> coast-rate: -ln(Physics.friction-per-step) / (Physics.step / 1ms);
+    property <float> decay: Physics.damping-per-ms / 2;
+    property <float> frequency: sqrt(max(Physics.stiffness-per-ms2 - decay * decay, Physics.under-damped-floor-per-ms2));
 
     function clamp-y(y: length) -> length { return max(lo, min(hi, y)); }
 
     changed active => {
         if (!active) {
             interrupt-motion();
-            v = 0;
+            velocity-px-per-ms = 0;
             position = clamp-y(position);
         }
     }
     changed motion-enabled => {
         if (!motion-enabled) {
             interrupt-motion();
-            v = 0;
+            velocity-px-per-ms = 0;
             position = clamp-y(position);
         }
     }
     changed lo => {
-        if (mode == 2 && anchor != clamp-y(anchor)) {
+        if (mode == ScrollMode.spring && anchor != clamp-y(anchor)) {
             let target = clamp-y(anchor);
             interrupt-motion();
             anchor = target;
-            start-motion(2);
-        } else if (mode == 0 && !ta.pressed) {
+            start-motion(ScrollMode.spring);
+        } else if (mode == ScrollMode.idle && !ta.pressed) {
             position = clamp-y(position);
         }
     }
 
-    function start-motion(next: int) {
+    function start-motion(next: ScrollMode) {
         if (!active || !motion-enabled) {
             position = clamp-y(position);
-            mode = 0;
-            v = 0;
+            mode = ScrollMode.idle;
+            velocity-px-per-ms = 0;
             return;
         }
-        let spring = next == 2 || position < lo || position > hi;
-        if (spring && next != 2) { anchor = clamp-y(position); }
-        if (spring && abs((position - anchor) / 1px) < Physics.settle-distance && abs(v) < Physics.settle-speed) {
+        let spring = next == ScrollMode.spring || position < lo || position > hi;
+        if (spring && next != ScrollMode.spring) { anchor = clamp-y(position); }
+        if (spring && abs((position - anchor) / 1px) < Physics.settle-distance-px && abs(velocity-px-per-ms) < Physics.settle-speed-px-per-ms) {
             position = anchor;
-            v = 0;
+            velocity-px-per-ms = 0;
             return;
         }
-        if (!spring && abs(v) < Physics.coast-stop) { v = 0; return; }
+        if (!spring && abs(velocity-px-per-ms) < Physics.coast-stop-px-per-ms) { velocity-px-per-ms = 0; return; }
         motion-t = animation-tick();
-        mode = spring ? 2 : 1;
+        mode = spring ? ScrollMode.spring : ScrollMode.coasting;
     }
 
     function sample-position(dt: duration) -> length {
         let ms = dt / 1ms;
-        if (mode == 1) {
-            return position + v / coast-rate * (1 - exp(-coast-rate * ms)) * 1px;
+        if (mode == ScrollMode.coasting) {
+            return position + velocity-px-per-ms / coast-rate * (1 - exp(-coast-rate * ms)) * 1px;
         }
-        if (mode == 2) {
+        if (mode == ScrollMode.spring) {
             let x = (position - anchor) / 1px;
-            let b = (v + decay * x) / frequency;
+            let b = (velocity-px-per-ms + decay * x) / frequency;
             let phase = frequency * ms * 180deg / 3.141592653589793;
             return anchor + exp(-decay * ms) * (x * cos(phase) + b * sin(phase)) * 1px;
         }
@@ -105,38 +105,38 @@ export component PhysicsScroll inherits Rectangle {
 
     function sample-velocity(dt: duration) -> float {
         let ms = dt / 1ms;
-        if (mode == 1) { return v * exp(-coast-rate * ms); }
-        if (mode == 2) {
+        if (mode == ScrollMode.coasting) { return velocity-px-per-ms * exp(-coast-rate * ms); }
+        if (mode == ScrollMode.spring) {
             let x = (position - anchor) / 1px;
-            let b = (v + decay * x) / frequency;
+            let b = (velocity-px-per-ms + decay * x) / frequency;
             let phase = frequency * ms * 180deg / 3.141592653589793;
-            return exp(-decay * ms) * (v * cos(phase) - (decay * b + frequency * x) * sin(phase));
+            return exp(-decay * ms) * (velocity-px-per-ms * cos(phase) - (decay * b + frequency * x) * sin(phase));
         }
-        return v;
+        return velocity-px-per-ms;
     }
 
     function interrupt-motion() {
-        if (mode == 0) { return; }
+        if (mode == ScrollMode.idle) { return; }
         let dt = max(0ms, animation-tick() - motion-t);
-        let current = mode == 1 ? clamp-y(sample-position(dt)) : sample-position(dt);
+        let current = mode == ScrollMode.coasting ? clamp-y(sample-position(dt)) : sample-position(dt);
         let velocity = sample-velocity(dt);
-        mode = 0;
+        mode = ScrollMode.idle;
         position = current;
-        v = velocity;
+        velocity-px-per-ms = velocity;
     }
 
     changed elapsed => {
-        if (active && motion-enabled && mode != 0) {
+        if (active && motion-enabled && mode != ScrollMode.idle) {
             let current = sample-position(elapsed);
             let velocity = sample-velocity(elapsed);
-            if (mode == 1 && (current < lo || current > hi || abs(velocity) < Physics.coast-stop)) {
+            if (mode == ScrollMode.coasting && (current < lo || current > hi || abs(velocity) < Physics.coast-stop-px-per-ms)) {
                 position = clamp-y(current);
-                mode = 0;
-                v = 0;
-            } else if (mode == 2 && abs(velocity) < Physics.settle-speed && abs((current - anchor) / 1px) < Physics.settle-distance) {
+                mode = ScrollMode.idle;
+                velocity-px-per-ms = 0;
+            } else if (mode == ScrollMode.spring && abs(velocity) < Physics.settle-speed-px-per-ms && abs((current - anchor) / 1px) < Physics.settle-distance-px) {
                 position = anchor;
-                mode = 0;
-                v = 0;
+                mode = ScrollMode.idle;
+                velocity-px-per-ms = 0;
             }
         }
     }
@@ -144,39 +144,40 @@ export component PhysicsScroll inherits Rectangle {
     public function scroll-to(y: length) {
         interrupt-motion();
         if (!active || !motion-enabled) {
-            mode = 0;
-            v = 0;
+            mode = ScrollMode.idle;
+            velocity-px-per-ms = 0;
             position = clamp-y(y);
             return;
         }
         anchor = clamp-y(y);
-        start-motion(2);
+        start-motion(ScrollMode.spring);
     }
 
     inner := VerticalLayout {
         y: root.offset;
         width: root.width;
         height: self.preferred-height;
+        cache-rendering-hint: cache-content && self.width <= 4096phx && self.height <= 4096phx;
         @children
     }
 
     ta := TouchArea {
         pointer-event(e) => {
             if (e.kind == PointerEventKind.down) {
-                catching = mode != 0;
+                pressed-during-motion = mode != ScrollMode.idle;
                 interrupt-motion();
-                v = 0;
+                velocity-px-per-ms = 0;
                 down-y = self.mouse-y;
                 down-x = self.mouse-x;
                 tap-moved = false;
                 last-y = self.mouse-y;
                 last-t = animation-tick();
             } else if (e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel) {
-                start-motion(1);
+                start-motion(ScrollMode.coasting);
             }
         }
         clicked => {
-            if (!catching && !tap-moved && abs(self.mouse-y - down-y) < Physics.tap-slop && abs(self.mouse-x - down-x) < Physics.tap-slop) {
+            if (!pressed-during-motion && !tap-moved && abs(self.mouse-y - down-y) < Physics.tap-slop && abs(self.mouse-x - down-x) < Physics.tap-slop) {
                 root.tapped(self.mouse-x, self.mouse-y - root.offset);
             }
         }
@@ -187,8 +188,7 @@ export component PhysicsScroll inherits Rectangle {
                 let dt = max(1ms, animation-tick() - last-t);
                 let out = position > hi || position < lo;
                 position += out ? dy * Physics.edge-resist : dy;
-                // smoothed release velocity
-                v = v * Physics.release-keep + (dy / 1px) / (dt / 1ms) * Physics.release-new;
+                velocity-px-per-ms = velocity-px-per-ms * Physics.release-keep + (dy / 1px) / (dt / 1ms) * Physics.release-new;
                 last-y = self.mouse-y;
                 last-t = animation-tick();
                 root.user-scrolled();
@@ -198,10 +198,9 @@ export component PhysicsScroll inherits Rectangle {
             interrupt-motion();
             let out = position > hi || position < lo;
             position += out ? e.delta-y * Physics.edge-resist : e.delta-y;
-            v = 0;
-            // let the edge spring pull it back once the wheel stops
+            velocity-px-per-ms = 0;
             anchor = clamp-y(position);
-            start-motion(2);
+            start-motion(ScrollMode.spring);
             root.user-scrolled();
             accept
         }

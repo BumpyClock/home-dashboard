@@ -1,6 +1,6 @@
-//! Demo household: people, chores, shared list. Replace with real
-//! sources (Home Assistant, a lists API) later.
+use chrono::Weekday;
 
+#[derive(Clone, Copy)]
 pub struct Person {
     pub name: &'static str,
     pub initial: &'static str,
@@ -16,21 +16,50 @@ pub const PEOPLE: [Person; 4] = [
     Person { name: "Mira", initial: "M", color: 0x8A63A8 },
 ];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PersonIdx(usize);
+
+impl PersonIdx {
+    pub const fn new(index: usize) -> Self { Self(index) }
+
+    pub fn person(self) -> Person { PEOPLE[self.0] }
+}
+
+pub const MONDAY_FIRST: [Weekday; 7] = [
+    Weekday::Mon, Weekday::Tue, Weekday::Wed, Weekday::Thu, Weekday::Fri, Weekday::Sat, Weekday::Sun,
+];
+
+pub struct WeekDays([bool; 7]);
+
+impl WeekDays {
+    pub fn from_monday_first(done: [bool; 7]) -> Self { Self(done) }
+
+    pub fn is_done(&self, day: Weekday) -> bool { self.0[day.num_days_from_monday() as usize] }
+
+    pub fn toggle(&mut self, day: Weekday) {
+        let day = day.num_days_from_monday() as usize;
+        self.0[day] = !self.0[day];
+    }
+
+    pub fn clear_rest_of_week(&mut self, from: Weekday) {
+        let from = from.num_days_from_monday() as usize;
+        for (day, done) in self.0.iter_mut().enumerate() {
+            if day >= from { *done = false; }
+        }
+    }
+}
+
 pub struct Chore {
     pub name: &'static str,
     pub person: usize,
-    /// Mon..Sun this week.
-    pub done: [bool; 7],
+    pub done: WeekDays,
 }
 
-pub fn demo_chores(today: usize) -> Vec<Chore> {
-    // Earlier days mostly done; today open so there's something to tap.
+pub fn demo_chores(today: Weekday) -> Vec<Chore> {
     let week = |pattern: [bool; 7]| {
-        let mut d = pattern;
-        for (i, v) in d.iter_mut().enumerate() {
-            if i >= today { *v = false; }
-        }
-        d
+        let mut done = WeekDays::from_monday_first(pattern);
+        done.clear_rest_of_week(today);
+        done
     };
     vec![
         Chore { name: "Walk Bruno", person: 2, done: week([true, true, true, false, true, true, true]) },

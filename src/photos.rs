@@ -1,8 +1,3 @@
-//! Photo slideshow source. A worker thread decodes and cover-crops only the
-//! photos around the one on screen, plus visible grid thumbnails, to the exact
-//! pixel size each view draws. Decoded pixels stay bounded; paths and captions
-//! grow with the library. Photos come from $FRAME_PHOTOS (default: assets/photos).
-
 use image::imageops::{self, FilterType};
 use image::{DynamicImage, ImageDecoder, ImageReader, RgbImage, RgbaImage};
 use slint::{ComponentHandle, Model, ModelRc, Rgb8Pixel, SharedPixelBuffer, VecModel};
@@ -33,6 +28,11 @@ impl ThumbnailKey {
         let metadata = path.metadata()?;
         Ok(Self { path, modified: metadata.modified()?, length: metadata.len(), size, baked })
     }
+
+    fn supersedes(&self, old: &Self) -> bool {
+        self == old || (self.path == old.path
+            && (self.modified != old.modified || self.length != old.length))
+    }
 }
 
 struct ThumbnailCache {
@@ -55,9 +55,7 @@ impl ThumbnailCache {
     }
 
     fn insert(&mut self, key: ThumbnailKey, image: SharedPixelBuffer<Rgb8Pixel>) {
-        // Remove stale versions of the same source, but retain other render sizes.
-        self.entries.retain(|(old, _)| old != &key && (old.path != key.path
-            || (old.modified == key.modified && old.length == key.length)));
+        self.entries.retain(|(old, _)| !key.supersedes(old));
         self.bytes = self.entries.iter().map(|(_, image)| image.as_bytes().len()).sum();
         let size = image.as_bytes().len();
         if size > Self::MAX_BYTES { return; }
@@ -93,7 +91,6 @@ fn composite_scrim(photo: &mut SharedPixelBuffer<Rgb8Pixel>, scrim: &RgbaImage) 
 }
 
 const THUMB: u32 = 270;
-const BLUR_DIVISOR: u32 = 8;
 
 struct Entry {
     path: PathBuf,
@@ -144,7 +141,6 @@ fn taken(path: &Path) -> Option<chrono::NaiveDateTime> {
     chrono::NaiveDateTime::parse_from_str(&exif_date(&decoder.exif_metadata().ok()??)?, "%Y:%m:%d %H:%M:%S").ok()
 }
 
-/// JPEGs in `dir`, oldest first (undated first, then by name). Caption: "March 2023".
 fn scan(dir: &Path) -> Vec<Entry> {
     let mut photos: Vec<_> = std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path())
         .filter(|p| p.extension().and_then(|e| e.to_str()).is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "jpg" | "jpeg")))
@@ -248,20 +244,10 @@ fn fit(img: &RgbImage, w: u32, h: u32, current: impl Fn() -> bool) -> Option<Sha
     Some(output)
 }
 
-/// Photos-tab backdrop: the UI scales this tiny image up, so a light blur finishes the look.
-fn soften(photo: SharedPixelBuffer<Rgb8Pixel>) -> SharedPixelBuffer<Rgb8Pixel> {
-    let (w, h) = (photo.width(), photo.height());
-    let image = RgbImage::from_raw(w, h, photo.as_bytes().to_vec()).expect("buffer matches its size");
-    SharedPixelBuffer::clone_from_slice(imageops::blur(&image, 2.0).as_raw(), w, h)
-}
-
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 enum Kind {
-    /// Home photo card, with the caption scrim baked in when the frame asks.
     Card,
-    /// Window-sized; resident only while the screensaver is up.
     Full,
-    Blur,
     Thumb,
 }
 
@@ -272,7 +258,6 @@ struct Card {
     generation: u64,
 }
 
-/// What the UI needs resident right now. Everything else is released.
 #[derive(Default, PartialEq)]
 struct Want {
     current: usize,
@@ -284,19 +269,38 @@ struct Want {
     thumbs: Range<usize>,
 }
 
-/// Photo indexes kept decoded around `current`, most urgent first: the photo
-/// shown, the next, the one just left (still crossfading), one more to prefetch.
+#[derive(Clone, Copy)]
+enum WindowUrgency {
+    Current,
+    Next,
+    JustLeft,
+    Prefetch,
+}
+
+impl WindowUrgency {
+    const ORDER: [Self; 4] = [Self::Current, Self::Next, Self::JustLeft, Self::Prefetch];
+
+    fn offset(self, count: usize) -> usize {
+        match self {
+            Self::Current => 0,
+            Self::Next => 1,
+            Self::JustLeft => count.saturating_sub(1),
+            Self::Prefetch => 2,
+        }
+    }
+}
+
 fn window(current: usize, count: usize) -> Vec<usize> {
-    let mut out = Vec::with_capacity(4);
-    for offset in [0, 1, count.saturating_sub(1), 2] {
-        let index = (current % count.max(1) + offset) % count.max(1);
+    let span = count.max(1);
+    let mut out = Vec::with_capacity(WindowUrgency::ORDER.len());
+    for urgency in WindowUrgency::ORDER {
+        let index = (current % span + urgency.offset(count)) % span;
         if index < count && !out.contains(&index) { out.push(index); }
     }
     out
 }
 
 impl Want {
-    /// Every decoded image that may be resident, in load order.
     fn slots(&self, count: usize) -> Vec<(usize, Kind, PhotoSize)> {
         let mut card_slots = Vec::new();
         let mut card_indexes = self.card_displayed.clone();
@@ -318,12 +322,10 @@ impl Want {
         for index in window(self.current, count) {
             if !screen_indexes.contains(&index) { screen_indexes.push(index); }
         }
-        for index in screen_indexes.into_iter().filter(|&index| index < count) {
-            if let Some((w, h)) = self.screen {
-                if self.full {
+        if self.full {
+            for index in screen_indexes.into_iter().filter(|&index| index < count) {
+                if let Some((w, h)) = self.screen {
                     screen_slots.push((index, Kind::Full, (w, h, 0)));
-                } else {
-                    screen_slots.push((index, Kind::Blur, ((w / BLUR_DIVISOR).max(1), (h / BLUR_DIVISOR).max(1), 0)));
                 }
             }
         }
@@ -352,15 +354,37 @@ struct Step {
     card_done: Option<Card>,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum HaveSlot {
+    Ready(PhotoSize),
+    Failed(PhotoSize),
+}
+
+impl HaveSlot {
+    fn size(self) -> PhotoSize {
+        match self { HaveSlot::Ready(size) | HaveSlot::Failed(size) => size }
+    }
+}
+
+#[derive(PartialEq)]
+enum CardBatch {
+    Open,
+    Settled,
+}
+
 struct Shared {
     want: Want,
-    have: BTreeMap<(usize, Kind), PhotoSize>,
+    have: BTreeMap<(usize, Kind), HaveSlot>,
     generation: u64,
-    /// Card batch opened by `load_scaled`; closed once its window is resident.
-    card_open: bool,
+    card_batch: CardBatch,
 }
 
 type Buffer = SharedPixelBuffer<Rgb8Pixel>;
+
+enum Rendered {
+    Ready(Buffer),
+    Failed,
+}
 
 impl Shared {
     const fn new() -> Self {
@@ -368,7 +392,7 @@ impl Shared {
             want: Want { current: 0, card_displayed: Vec::new(), full_displayed: Vec::new(), card: None, screen: None, full: false, thumbs: 0..0 },
             have: BTreeMap::new(),
             generation: 0,
-            card_open: false,
+            card_batch: CardBatch::Settled,
         }
     }
 
@@ -376,18 +400,21 @@ impl Shared {
         self.generation == generation && self.want.slots(count).contains(&(index, kind, spec))
     }
 
-    /// Release what is no longer wanted, then pick the next photo with missing images.
+    fn filled(&self, index: usize, kind: Kind, spec: PhotoSize) -> bool {
+        self.have.get(&(index, kind)).map_or(false, |slot| slot.size() == spec)
+    }
+
     fn step(&mut self, count: usize) -> Step {
         let slots = self.want.slots(count);
         let evict: Vec<_> = self.have.keys().copied()
             .filter(|&(i, k)| !slots.iter().any(|&(si, sk, _)| (si, sk) == (i, k))).collect();
-        let missing: Vec<_> = slots.iter().filter(|&&(i, k, spec)| self.have.get(&(i, k)) != Some(&spec)).collect();
+        let missing: Vec<_> = slots.iter().filter(|&&(i, k, spec)| !self.filled(i, k, spec)).collect();
         let job = missing.first().map(|&&(index, ..)| Job {
             index,
             specs: missing.iter().filter(|s| s.0 == index).map(|&&(_, k, spec)| (k, spec)).collect(),
         });
         let card_missing = missing.iter().any(|s| s.1 == Kind::Card);
-        let card_done = if self.card_open && !card_missing { self.want.card } else { None };
+        let card_done = if self.card_batch == CardBatch::Open && !card_missing { self.want.card } else { None };
         Step { evict, job, card_done }
     }
 }
@@ -406,22 +433,18 @@ fn update(change: impl FnOnce(&mut Shared) -> bool) {
 
 /// Card pixel size changed (debounced by the caller): decode the window at that size.
 pub fn load_scaled(_weak: slint::Weak<AppWindow>, size: PhotoSize, bake: bool) {
-    let (generation, requested) = {
-        let mut state = LOAD_STATE.lock().unwrap();
-        let requested = state.request_mode(size, bake).is_some();
-        (state.generation, requested)
-    };
+    let request = LOAD_STATE.lock().unwrap().request_mode(size, bake);
+    let generation = request.generation();
+    let started = request.started();
     update(|s| {
         let card = Some(Card { size, bake, generation });
-        if !requested && s.want.card == card { return false; }
-        // A return to the completed size still cancels the worker's outdated resize demand.
+        if !started && s.want.card == card { return false; }
         s.want.card = card;
-        s.card_open = true;
+        s.card_batch = CardBatch::Open;
         true
     });
 }
 
-/// Re-read what the UI shows: photo, tab, screensaver, grid rows, window size.
 pub fn demand(app: &AppWindow) {
     let f = app.global::<Frame>();
     let saver = app.global::<Saver>();
@@ -445,20 +468,18 @@ pub fn demand(app: &AppWindow) {
     });
 }
 
-/// Decode `job` once and render each wanted size from it. `None` marks a failure.
-fn render(path: &Path, job: &Job, wanted: impl Fn(Kind, PhotoSize) -> bool) -> Vec<(Kind, PhotoSize, Option<Buffer>)> {
+fn render(path: &Path, job: &Job, wanted: impl Fn(Kind, PhotoSize) -> bool) -> Vec<(Kind, PhotoSize, Rendered)> {
     let mut decoded = None;
     let mut out = Vec::new();
     for &(kind, spec @ (w, h, scrim)) in &job.specs {
         if !wanted(kind, spec) { continue; }
-        let key = (kind != Kind::Blur).then(|| ThumbnailKey::read(path, spec, scrim > 0).ok()).flatten();
+        let key = ThumbnailKey::read(path, spec, scrim > 0).ok();
         let cached = key.as_ref().and_then(|key| THUMBNAILS.lock().unwrap().get(key));
-        let buf = cached.or_else(|| {
+        let rendered = cached.or_else(|| {
             let image = decoded.get_or_insert_with(|| {
                 decode_oriented(path).map_err(|e| eprintln!("[photos] {}: {e}", path.display())).ok()
             }).as_ref()?;
             let mut buf = fit(image, w, h, || wanted(kind, spec))?;
-            if kind == Kind::Blur { buf = soften(buf); }
             if scrim > 0 {
                 match raster_scrim(w, scrim.min(h)) {
                     Ok(scrim) => composite_scrim(&mut buf, &scrim),
@@ -471,8 +492,8 @@ fn render(path: &Path, job: &Job, wanted: impl Fn(Kind, PhotoSize) -> bool) -> V
                 }
             }
             Some(buf)
-        });
-        out.push((kind, spec, buf));
+        }).map(Rendered::Ready).unwrap_or(Rendered::Failed);
+        out.push((kind, spec, rendered));
     }
     out
 }
@@ -492,12 +513,12 @@ fn work(weak: slint::Weak<AppWindow>) {
         };
         let mut updates = Vec::new();
         if let Some(job) = &step.job {
-            let rendered = render(&playlist[job.index].path, job, |kind, spec| {
+            let outcomes = render(&playlist[job.index].path, job, |kind, spec| {
                 let shared = SHARED.lock().unwrap();
                 shared.accepts(generation, job.index, kind, spec, playlist.len())
             });
-            for (kind, spec, buf) in rendered {
-                updates.push((job.index, kind, spec, buf));
+            for (kind, spec, rendered) in outcomes {
+                updates.push((job.index, kind, spec, rendered));
             }
         }
         let (acknowledge, acknowledged) = std::sync::mpsc::sync_channel::<()>(1);
@@ -506,7 +527,6 @@ fn work(weak: slint::Weak<AppWindow>) {
             move || {
                 let _acknowledge = acknowledge;
                 let Some(app) = weak.upgrade() else { return };
-                // Refresh from the actual scene before admitting a queued decode result.
                 demand(&app);
                 let mut shared = SHARED.lock().unwrap();
                 if shared.generation != generation { return; }
@@ -518,14 +538,18 @@ fn work(weak: slint::Weak<AppWindow>) {
                         admitted.push((index, kind, None));
                     }
                 }
-                for (index, kind, spec, buf) in updates {
+                for (index, kind, spec, rendered) in updates {
                     if slots.contains(&(index, kind, spec)) {
-                        // Failed slots are remembered until their demand changes, avoiding a retry loop.
-                        shared.have.insert((index, kind), spec);
-                        if buf.is_some() { admitted.push((index, kind, buf)); }
+                        match rendered {
+                            Rendered::Ready(buffer) => {
+                                shared.have.insert((index, kind), HaveSlot::Ready(spec));
+                                admitted.push((index, kind, Some(buffer)));
+                            }
+                            Rendered::Failed => { shared.have.insert((index, kind), HaveSlot::Failed(spec)); }
+                        }
                     }
                 }
-                if step.card_done == shared.want.card && step.card_done.is_some() { shared.card_open = false; }
+                if step.card_done == shared.want.card && step.card_done.is_some() { shared.card_batch = CardBatch::Settled; }
                 drop(shared);
                 let f = app.global::<Frame>();
                 let model = f.get_photos();
@@ -542,7 +566,6 @@ fn work(weak: slint::Weak<AppWindow>) {
                             photo.image = image;
                         }
                         Kind::Full => photo.full = image,
-                        Kind::Blur => photo.blur = image,
                         Kind::Thumb => photo.thumb = image,
                     }
                     model.set_row_data(index, photo);
@@ -557,7 +580,7 @@ fn work(weak: slint::Weak<AppWindow>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{taken, composite_scrim, cover, decode_oriented, exif_date, fit, raster_scrim, scan, window, Card, Kind, Shared, ThumbnailCache, ThumbnailKey, Want, MAX_THUMBS};
+    use super::{taken, composite_scrim, cover, decode_oriented, exif_date, fit, raster_scrim, scan, window, Card, HaveSlot, Kind, MAX_THUMBS, Shared, THUMB, ThumbnailCache, ThumbnailKey, Want};
     use image::{imageops, Rgb, RgbImage};
     use std::io::Write;
     use std::path::PathBuf;
@@ -732,16 +755,20 @@ mod tests {
         assert_eq!(scan(&fixture.0).iter().map(|e| e.caption.as_str()).collect::<Vec<_>>(), ["", "March 2023"]);
     }
 
-    /// Peak bytes of decoded pixels while visiting every photo in order.
-    fn resident_bytes(count: usize) -> usize {
-        let mut shared = Shared::new();
-        shared.want = Want {
+    fn resident_want(current: usize) -> Want {
+        Want {
+            current,
             card: Some(Card { size: (388, 280, 180), bake: true, generation: 1 }),
             screen: Some((800, 1280)),
             full: true,
             thumbs: 0..21,
             ..Want::default()
-        };
+        }
+    }
+
+    fn resident_bytes(count: usize) -> usize {
+        let mut shared = Shared::new();
+        shared.want = resident_want(0);
         let mut peak = 0;
         for current in 0..count {
             shared.want.current = current;
@@ -749,8 +776,11 @@ mod tests {
                 let step = shared.step(count);
                 for key in step.evict { shared.have.remove(&key); }
                 let Some(job) = step.job else { break };
-                for (kind, spec) in job.specs { shared.have.insert((job.index, kind), spec); }
-                peak = peak.max(shared.have.values().map(|&(w, h, _)| w as usize * h as usize * 3).sum());
+                for (kind, spec) in job.specs { shared.have.insert((job.index, kind), HaveSlot::Ready(spec)); }
+                peak = peak.max(shared.have.values().map(|slot| {
+                    let (w, h, _) = slot.size();
+                    w as usize * h as usize * 3
+                }).sum());
             }
         }
         peak
@@ -758,14 +788,20 @@ mod tests {
 
     #[test]
     fn resident_pixels_stay_bounded_as_the_photo_count_grows() {
-        assert_eq!(window(0, 66), [0, 1, 65, 2]);
+        let urgent = window(0, 66);
+        assert_eq!(urgent, [0, 1, 65, 2]);
         assert_eq!(window(65, 66), [65, 0, 64, 1]);
         assert_eq!(window(0, 2), [0, 1]);
         assert!(window(0, 0).is_empty());
         let small = resident_bytes(30);
         let large = resident_bytes(2000);
-        // 4 photos x (card + screensaver frame + backdrop) + 21 grid thumbnails
-        let limit = 4 * (388 * 280 + 800 * 1280 + 100 * 160) * 3 + 21 * 270 * 270 * 3;
+        let want = resident_want(0);
+        let (card_w, card_h, _) = want.card.unwrap().size;
+        let (screen_w, screen_h) = want.screen.unwrap();
+        let window_bytes = (card_w as usize * card_h as usize
+            + screen_w as usize * screen_h as usize) * 3;
+        let thumb_bytes = want.thumbs.clone().count() * THUMB as usize * THUMB as usize * 3;
+        let limit = urgent.len() * window_bytes + thumb_bytes;
         assert_eq!(small, large);
         assert!(large <= limit, "{large} > {limit}");
     }
@@ -807,7 +843,7 @@ mod tests {
         assert_eq!(job.specs, [(Kind::Full, (800, 1280, 0))]);
         let slots = shared.want.slots(66);
         assert!(slots.contains(&(65, Kind::Full, (800, 1280, 0))));
-        assert!(!slots.iter().any(|slot| matches!(slot.1, Kind::Card | Kind::Blur)));
+        assert!(!slots.iter().any(|slot| slot.1 == Kind::Card));
         shared.want.full = false;
         let slots = shared.want.slots(66);
         assert_eq!(slots[0], (0, Kind::Card, (388, 280, 180)));

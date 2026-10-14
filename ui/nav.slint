@@ -1,7 +1,3 @@
-// Nav rail with the "notch" active tab from the pen.dev design: the active
-// item is cut out of the rail in the page color, with inverted corners
-// above and below, and the whole notch slides between tabs.
-
 import { Theme } from "theme.slint";
 import { Frame } from "data.slint";
 import { Icon } from "components.slint";
@@ -60,7 +56,6 @@ export component Rail inherits Rectangle {
         ? root.height - pad - item-h
         : pad + Frame.active-tab * (item-h + gap);
 
-    // the notch: pill + inverted corners, all in the page color
     notch := Rectangle {
         x: Space.md;
         y: notch-y;
@@ -113,7 +108,6 @@ export component Rail inherits Rectangle {
     }
 }
 
-// Portrait: same tabs along the bottom; the notch becomes a top-edge tab.
 export component BottomNav inherits Rectangle {
     height: Size.bottom-nav;
     background: Theme.c.rail;
@@ -139,7 +133,7 @@ export component BottomNav inherits Rectangle {
         }
         Rectangle {
             x: -Radius.panel;
-            y: 0;  // top edge, where the tab meets the page
+            y: 0;
             width: Radius.panel;
             height: Radius.panel;
             background: Theme.c.bg;
@@ -147,7 +141,7 @@ export component BottomNav inherits Rectangle {
         }
         Rectangle {
             x: parent.width;
-            y: 0;  // top edge, where the tab meets the page
+            y: 0;
             width: Radius.panel;
             height: Radius.panel;
             background: Theme.c.bg;

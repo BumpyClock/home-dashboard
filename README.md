@@ -1,12 +1,13 @@
+# CAUTION
+
+This project is very early in development. The functionality is very barebones, the basic GUI works, there is no real calendar, or any data integration for now. It will come in time, this was a quick spike to explore if this was a viable direction at all. Seems like it is so I will continue to build on top of it. If you're interested in collaborating, you're more than welcome to fork , and contribute.
+
+
 # Family Frame — Slint photoframe dashboard (prototype)
 
 A Rust + [Slint](https://slint.dev) family dashboard for a wall/counter
-photo frame (1280×800 landscape, portrait reflow). The Home screen matches
-the pen.dev **Family Dashboard** design: notch nav rail, greeting + clock,
-today's agenda with a live "now" line, tomorrow + shared-list cards, photo
-slideshow, weather, and a weekly chores grid.
-
-![Design reference](docs/pen/bi8Au.png)
+photo frame (1280×800 landscape, portrait reflow).
+![Design reference](docs/screenshot.png)
 
 ## Run it
 
@@ -58,7 +59,10 @@ Rust fills it, the UI never computes data.
 theme live in `src/settings.rs` (`themes()`), exposed as `Theme.c.*`
 (`ui/theme.slint`). Edit a token once; every component follows. The caption
 alpha ramp lives in `ui/images/photo-scrim.svg` and is shared by the SVG and
-baked-photo modes.
+baked-photo modes. `build.rs` enforces this on every build (including
+`cargo clippy`/`cargo test`): raw colors, lengths, or durations in
+components, unused tokens or imports, and drift between the Rust and
+Slint copies of the Linen palette fail the build with file:line messages.
 
 ## Agenda behavior
 

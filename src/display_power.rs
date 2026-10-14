@@ -449,6 +449,10 @@ mod runtime {
         static CURRENT: RefCell<Weak<Controller>> = RefCell::new(Weak::new());
     }
 
+    fn hardware_now() -> chrono::DateTime<chrono::Local> {
+        chrono::Local::now()
+    }
+
     struct Controller {
         config: Config,
         backlight: Backlight,
@@ -465,9 +469,8 @@ mod runtime {
 
     impl Controller {
         fn apply(&self) -> bool {
-            // Hardware schedules use real local time, independent of FRAME_NOW previews.
             let minute = if self.config.night.is_some() {
-                let now = chrono::Local::now();
+                let now = hardware_now();
                 (now.hour() * 60 + now.minute()) as u16
             } else {
                 0
@@ -512,7 +515,7 @@ mod runtime {
 
         fn arm_night(self: &Rc<Self>) {
             if let Some(night) = self.config.night {
-                let delay = next_night_boundary(chrono::Local::now(), night);
+                let delay = next_night_boundary(hardware_now(), night);
                 let weak = Rc::downgrade(self);
                 self.night_timer
                     .start(TimerMode::SingleShot, delay, move || {
@@ -560,11 +563,26 @@ mod runtime {
         pointer_failed: AtomicBool,
     }
 
+    struct BrightnessRestore(Writer);
+
+    impl BrightnessRestore {
+        fn spawn(
+            restore: u32,
+            write: impl FnMut(u32) -> io::Result<()> + Send + 'static,
+        ) -> io::Result<Self> {
+            Writer::spawn(restore, write).map(Self)
+        }
+
+        fn shared(&self) -> Arc<SharedWriter> {
+            self.0.shared.clone()
+        }
+    }
+
     /// Retain until the event loop ends; normal drop restores the day brightness.
     pub struct Guard {
         controller: Rc<Controller>,
         inputs: Arc<InputLifetime>,
-        _writer: Writer,
+        _restore: BrightnessRestore,
     }
 
     impl Guard {
@@ -599,7 +617,6 @@ mod runtime {
             self.inputs.alive.store(false, Ordering::Release);
             self.controller.idle_timer.stop();
             self.controller.night_timer.stop();
-            // Writer's drop serializes final restoration after any in-flight dim.
         }
     }
 
@@ -867,13 +884,13 @@ mod runtime {
             let backlight =
                 Backlight::discover(Path::new("/sys/class/backlight"), explicit.as_deref())?;
             let (files, pointer_failed) = open_inputs()?;
-            let restore = backlight.raw(config.day);
+            let day_brightness = backlight.raw(config.day);
             let hardware = backlight.clone();
-            let writer = Writer::spawn(restore, move |value| hardware.write(value))?;
+            let restore = BrightnessRestore::spawn(day_brightness, move |value| hardware.write(value))?;
             let controller = Rc::new(Controller {
                 config,
                 backlight,
-                writer: writer.shared.clone(),
+                writer: restore.shared(),
                 idle: Cell::new(false),
                 input_available: Cell::new(true),
                 last_brightness: Cell::new(None),
@@ -901,7 +918,7 @@ mod runtime {
             let guard = Guard {
                 controller,
                 inputs,
-                _writer: writer,
+                _restore: restore,
             };
             let mut started = 0;
             for (path, file, pointer) in files {
@@ -1159,6 +1176,17 @@ mod tests {
         assert!(Backlight::from_directory(&path).is_err());
     }
 
+    fn wait_until_closing(shared: &SharedWriter) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !shared.requests.lock().unwrap().closing {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "shutdown did not reach writer"
+            );
+            std::thread::yield_now();
+        }
+    }
+
     #[test]
     fn shutdown_restores_day_after_an_in_flight_dim_and_drops_stale_requests() {
         let (started_tx, started_rx) = std::sync::mpsc::channel();
@@ -1179,15 +1207,7 @@ mod tests {
         writer.shared.request(10);
         let shared = writer.shared.clone();
         let shutdown = std::thread::spawn(move || drop(writer));
-        // Observe shutdown's protected state before unblocking the hardware write.
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        while !shared.requests.lock().unwrap().closing {
-            assert!(
-                std::time::Instant::now() < deadline,
-                "shutdown did not reach writer"
-            );
-            std::thread::yield_now();
-        }
+        wait_until_closing(&shared);
         shared.request(5);
         continue_tx.send(()).unwrap();
         shutdown.join().unwrap();

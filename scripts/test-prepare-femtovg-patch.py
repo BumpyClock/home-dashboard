@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Check isolated patch preparation using an external locked Cargo metadata JSON."""
 
 import hashlib
 import importlib.util

@@ -1,6 +1,3 @@
-//! User preferences (Settings tab): theme, fonts, text size, clock, motion.
-//! Stored as JSON at $FRAME_SETTINGS or ~/.config/family-frame/settings.json.
-
 use slint::Color;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -17,7 +14,6 @@ pub struct Settings {
     pub body_font: usize,
     pub scale: usize,
     pub clock24: bool,
-    /// 0 full, 1 calm (no continuous loops), 2 off
     pub motion: usize,
 }
 
@@ -29,7 +25,6 @@ impl Default for Settings {
 
 pub const SCALES: [f32; 3] = [1.0, 1.12, 1.25];
 
-/// (label, family). Empty family = use the body font for headlines too.
 pub const DISPLAY_FONTS: [(&str, &str); 4] = [
     ("Instrument Serif", "Instrument Serif"),
     ("DM Serif Display", "DM Serif Display"),
@@ -44,32 +39,48 @@ pub const BODY_FONTS: [(&str, &str); 2] = [
 
 fn c(hex: u32) -> Color { Color::from_rgb_u8((hex >> 16) as u8, (hex >> 8) as u8, hex as u8) }
 
-#[rustfmt::skip]
 pub fn themes() -> Vec<(&'static str, Palette)> {
-    // order: bg surface card-hi ink muted line accent | rail rail-fg |
-    //        weather bg fg muted sub rule icon | dot-empty
-    let p = |v: [u32; 16]| Palette {
-        bg: c(v[0]), surface: c(v[1]), card_hi: c(v[2]), ink: c(v[3]), muted: c(v[4]), line: c(v[5]), accent: c(v[6]),
-        rail: c(v[7]), rail_fg: c(v[8]),
-        weather_bg: c(v[9]), weather_fg: c(v[10]), weather_muted: c(v[11]), weather_sub: c(v[12]),
-        weather_rule: c(v[13]), weather_icon: c(v[14]), dot_empty: c(v[15]),
-    };
     vec![
-        ("Linen", p([0xF2EEE6, 0xFBF9F5, 0xFFFFFF, 0x1D1C1A, 0x6F6A61, 0xE3DDD1, 0xC9532D,
-                     0x1D1C1A, 0xA9A399,
-                     0x1D1C1A, 0xFBF9F5, 0xA9A399, 0xD9D3C8, 0x3A3834, 0xE9A88F, 0xE9E4DA])),
-        ("Sage", p([0xE8ECE4, 0xF5F7F2, 0xFFFFFF, 0x1B2620, 0x5D6A60, 0xD3DCCF, 0x3E7B55,
-                    0x1E3328, 0xA3B7A9,
-                    0x1E3328, 0xF5F7F2, 0xA3B7A9, 0xCFDBD2, 0x34493D, 0xE6C27A, 0xDCE3D8])),
-        ("Harbor", p([0xE7ECF1, 0xF5F7FA, 0xFFFFFF, 0x15202B, 0x5A6676, 0xD2DAE3, 0x2D6CB0,
-                      0x14243A, 0x9AABBF,
-                      0x14243A, 0xF5F7FA, 0x9AABBF, 0xC9D5E2, 0x2A3B52, 0xF2B880, 0xDCE3EA])),
-        ("Paper", p([0xF6F5F2, 0xFFFFFF, 0xFFF1E6, 0x000000, 0x4A4A48, 0xD9D7D2, 0xC2410C,
-                     0x000000, 0xB5B3AE,
-                     0x000000, 0xFFFFFF, 0xB5B3AE, 0xE3E1DC, 0x333333, 0xFDBA74, 0xE4E2DD])),
-        ("Night", p([0x121110, 0x1C1A18, 0x2A2622, 0xEEE9E0, 0x9B948A, 0x2D2A26, 0xE58A62,
-                     0x0A0908, 0x7D776E,
-                     0x1C1A18, 0xEEE9E0, 0x9B948A, 0xC9C2B7, 0x34302B, 0xE9A88F, 0x2D2A26])),
+        ("Linen", Palette {
+            bg: c(0xF2EEE6), surface: c(0xFBF9F5), card_hi: c(0xFFFFFF), ink: c(0x1D1C1A),
+            muted: c(0x6F6A61), line: c(0xE3DDD1), accent: c(0xC9532D),
+            rail: c(0x1D1C1A), rail_fg: c(0xA9A399),
+            weather_bg: c(0x1D1C1A), weather_fg: c(0xFBF9F5), weather_muted: c(0xA9A399),
+            weather_sub: c(0xD9D3C8), weather_rule: c(0x3A3834), weather_icon: c(0xE9A88F),
+            dot_empty: c(0xE9E4DA),
+        }),
+        ("Sage", Palette {
+            bg: c(0xE8ECE4), surface: c(0xF5F7F2), card_hi: c(0xFFFFFF), ink: c(0x1B2620),
+            muted: c(0x5D6A60), line: c(0xD3DCCF), accent: c(0x3E7B55),
+            rail: c(0x1E3328), rail_fg: c(0xA3B7A9),
+            weather_bg: c(0x1E3328), weather_fg: c(0xF5F7F2), weather_muted: c(0xA3B7A9),
+            weather_sub: c(0xCFDBD2), weather_rule: c(0x34493D), weather_icon: c(0xE6C27A),
+            dot_empty: c(0xDCE3D8),
+        }),
+        ("Harbor", Palette {
+            bg: c(0xE7ECF1), surface: c(0xF5F7FA), card_hi: c(0xFFFFFF), ink: c(0x15202B),
+            muted: c(0x5A6676), line: c(0xD2DAE3), accent: c(0x2D6CB0),
+            rail: c(0x14243A), rail_fg: c(0x9AABBF),
+            weather_bg: c(0x14243A), weather_fg: c(0xF5F7FA), weather_muted: c(0x9AABBF),
+            weather_sub: c(0xC9D5E2), weather_rule: c(0x2A3B52), weather_icon: c(0xF2B880),
+            dot_empty: c(0xDCE3EA),
+        }),
+        ("Paper", Palette {
+            bg: c(0xF6F5F2), surface: c(0xFFFFFF), card_hi: c(0xFFF1E6), ink: c(0x000000),
+            muted: c(0x4A4A48), line: c(0xD9D7D2), accent: c(0xC2410C),
+            rail: c(0x000000), rail_fg: c(0xB5B3AE),
+            weather_bg: c(0x000000), weather_fg: c(0xFFFFFF), weather_muted: c(0xB5B3AE),
+            weather_sub: c(0xE3E1DC), weather_rule: c(0x333333), weather_icon: c(0xFDBA74),
+            dot_empty: c(0xE4E2DD),
+        }),
+        ("Night", Palette {
+            bg: c(0x121110), surface: c(0x1C1A18), card_hi: c(0x2A2622), ink: c(0xEEE9E0),
+            muted: c(0x9B948A), line: c(0x2D2A26), accent: c(0xE58A62),
+            rail: c(0x0A0908), rail_fg: c(0x7D776E),
+            weather_bg: c(0x1C1A18), weather_fg: c(0xEEE9E0), weather_muted: c(0x9B948A),
+            weather_sub: c(0xC9C2B7), weather_rule: c(0x34302B), weather_icon: c(0xE9A88F),
+            dot_empty: c(0x2D2A26),
+        }),
     ]
 }
 

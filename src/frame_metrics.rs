@@ -1,5 +1,3 @@
-//! Opt-in, bounded frame timing for matched on-device comparisons.
-
 use std::cell::RefCell;
 use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
@@ -103,6 +101,9 @@ fn process_sample() -> Value {
     })
 }
 
+const GL_MAX_TEXTURE_SIZE: u32 = 0x0D33;
+const GL_MAX_RENDERBUFFER_SIZE: u32 = 0x84E8;
+
 fn query_gl_limits(api: &GraphicsAPI<'_>) -> Option<(i32, i32)> {
     let GraphicsAPI::NativeOpenGL { get_proc_address } = api else {
         return None;
@@ -116,8 +117,8 @@ fn query_gl_limits(api: &GraphicsAPI<'_>) -> Option<(i32, i32)> {
     // Both GLES 2 limits write one GLint, and the query changes no GL state.
     unsafe {
         let get_integer: unsafe extern "system" fn(u32, *mut i32) = std::mem::transmute(address);
-        get_integer(0x0D33, &mut texture); // GL_MAX_TEXTURE_SIZE
-        get_integer(0x84E8, &mut renderbuffer); // GL_MAX_RENDERBUFFER_SIZE
+        get_integer(GL_MAX_TEXTURE_SIZE, &mut texture);
+        get_integer(GL_MAX_RENDERBUFFER_SIZE, &mut renderbuffer);
     }
     (texture > 0 && renderbuffer > 0).then_some((texture, renderbuffer))
 }

@@ -104,7 +104,6 @@ def prepare(source: Path, metadata_path: Path, output: Path, image_aa: bool = Tr
 
     app = prepared / "app-source"
     app.mkdir()
-    # Copy build inputs only; repository metadata and generated artifacts stay out.
     for name in BUILD_INPUTS:
         entry = source / name
         if entry.is_dir():

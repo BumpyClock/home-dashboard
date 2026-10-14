@@ -19,7 +19,7 @@ placeholder screens, and Settings sections now appear instantly. Photo
 transitions run 500 ms (was 1000 ms) with no separate caption crossfade
 and no animated pager dots; the caption changes with the photo. Past-event
 and avatar color changes are instant instead of a 500 ms fade. The Photos
-tab backdrop is the solid browse color; the precomputed blur rendition
+tab backdrop is the solid theme page color; the precomputed blur rendition
 (`Kind::Blur`, window÷8) and its decode work are deleted, and the
 screensaver's loading fallback is now thumb, then card image. These
 simplifications are design decisions accepted without A/B captures; no
@@ -62,7 +62,7 @@ congruent to `j` modulo the pool size, so scrolling one row reassigns only
 that row's slots. Images built from pixel buffers have no shared FemtoVG
 texture cache key, so every reassigned tile uploads a new texture. Tiles
 are not clipped: a rounded `clip` in Slint 1.18.1 FemtoVG renders the tile
-through an offscreen layer. A browse-colored `RoundedCornerMask` ring
+through an offscreen layer. A page-colored `RoundedCornerMask` ring
 covers the corners instead. Decode results are accepted while their slot
 is still wanted; a demand change, such as a scrolled row, no longer
 discards an in-progress decode. The last grid range stays resident off the

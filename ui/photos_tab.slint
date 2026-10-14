@@ -7,7 +7,7 @@ import { Space, Radius, Size, Type, Fixed } from "tokens.slint";
 
 export component PhotosScreen inherits Rectangle {
     clip: true;
-    background: Fixed.browse-base;
+    background: Theme.c.bg;
 
     property <length> gap: Space.row;
     property <length> pad: Space.gutter;
@@ -38,8 +38,8 @@ export component PhotosScreen inherits Rectangle {
             VerticalLayout {
                 horizontal-stretch: 1;
                 alignment: center;
-                Display { text: "Photos"; size: Type.display-xl; color: Fixed.photo-fg; }
-                Body { text: "\{Frame.photos.length} photos"; size: Type.title; color: Fixed.photo-fg-muted; }
+                Display { text: "Photos"; size: Type.display-xl; }
+                Body { text: "\{Frame.photos.length} photos"; size: Type.title; color: Theme.c.muted; }
             }
             VerticalLayout {
                 alignment: center;
@@ -86,14 +86,14 @@ export component PhotosScreen inherits Rectangle {
                     width: tile;
                     height: tile;
                     border-radius: Radius.item;
-                    background: Fixed.glass;
+                    background: Theme.c.line;
                     Image { source: Frame.photos[parent.photo-index].thumb; image-fit: cover; width: parent.width; height: parent.height; }
                     RoundedCornerMask {
                         inner-width: parent.width;
                         inner-height: parent.height;
                         radius: Radius.item;
                         ring: Space.sm;
-                        ring-color: Fixed.browse-base;
+                        ring-color: Theme.c.bg;
                     }
                     Rectangle {
                         border-radius: parent.border-radius;
@@ -103,7 +103,7 @@ export component PhotosScreen inherits Rectangle {
                 }
                 if Frame.photos.length == 0: Body {
                     text: Frame.photos-loading ? "Loading photos…" : "No photos yet";
-                    color: Fixed.photo-fg-muted;
+                    color: Theme.c.muted;
                     horizontal-alignment: center;
                     vertical-alignment: center;
                     width: parent.width;

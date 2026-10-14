@@ -57,6 +57,19 @@ evidence. A later tiny SVG corner-mask experiment was also rolled back;
 its unused assets were removed. Complex cards use pressed colors or leaf
 opacity. Navigation icon tint changes immediately.
 
+The Photos grid uses a fixed pool of tile slots. Slot `j` shows the photo
+congruent to `j` modulo the pool size, so scrolling one row reassigns only
+that row's slots. Images built from pixel buffers have no shared FemtoVG
+texture cache key, so every reassigned tile uploads a new texture. Tiles
+are not clipped: a rounded `clip` in Slint 1.18.1 FemtoVG renders the tile
+through an offscreen layer. A browse-colored `RoundedCornerMask` ring
+covers the corners instead. Decode results are accepted while their slot
+is still wanted; a demand change, such as a scrolled row, no longer
+discards an in-progress decode. The last grid range stays resident off the
+Photos tab and during the screensaver, and grid thumbnails use their own
+128-entry, 28 MiB cache. These changes are source-supported; no frame
+capture of the Photos tab exists yet.
+
 Scroll motion has no simulation timer. The offset binding samples
 closed-form exponential coast and damped spring motion from
 `animation-tick()`. The existing 16 ms `Physics.step` calibrates friction;

@@ -374,16 +374,22 @@ export component PhotoStage inherits Rectangle {
     }
 }
 
-component RoundedCornerMask inherits Rectangle {
+// Paints the area outside a rounded rect in `ring-color`, so an unclipped child looks
+// rounded without a rounded `clip`, which FemtoVG renders through an offscreen layer.
+// `ring` must be at least 0.42 × `radius` to cover the corners.
+export component RoundedCornerMask inherits Rectangle {
     in property <length> inner-width;
     in property <length> inner-height;
-    x: -Radius.panel;
-    y: -Radius.panel;
-    width: inner-width + 2 * Radius.panel;
-    height: inner-height + 2 * Radius.panel;
-    border-radius: 2 * Radius.panel;
-    border-width: Radius.panel;
-    border-color: Theme.c.bg;
+    in property <length> radius: Radius.panel;
+    in property <length> ring: Radius.panel;
+    in property <color> ring-color: Theme.c.bg;
+    x: -ring;
+    y: -ring;
+    width: inner-width + 2 * ring;
+    height: inner-height + 2 * ring;
+    border-radius: radius + ring;
+    border-width: ring;
+    border-color: ring-color;
 }
 
 export component PhotoCard inherits PhotoStage {

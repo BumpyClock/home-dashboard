@@ -285,19 +285,7 @@ pub fn init(app: &AppWindow) {
         let ui = weak.clone();
         if slint::invoke_from_event_loop(move || {
             let Some(app) = ui.upgrade() else { return };
-            let rows: Vec<Photo> = PLAYLIST
-                .get()
-                .unwrap()
-                .iter()
-                .map(|e| Photo {
-                    title: e.caption.as_str().into(),
-                    ..Default::default()
-                })
-                .collect();
-            let frame = app.global::<Frame>();
-            frame.set_photos(ModelRc::new(VecModel::from(rows)));
-            frame.set_photos_loading(false);
-            demand(&app);
+            publish_playlist(&app);
             let _ = published.send(());
         })
         .is_err()
@@ -307,6 +295,22 @@ pub fn init(app: &AppWindow) {
         }
         work(weak);
     });
+}
+
+fn publish_playlist(app: &AppWindow) {
+    let rows: Vec<Photo> = PLAYLIST
+        .get()
+        .unwrap()
+        .iter()
+        .map(|e| Photo {
+            title: e.caption.as_str().into(),
+            ..Default::default()
+        })
+        .collect();
+    let frame = app.global::<Frame>();
+    frame.set_photos(ModelRc::new(VecModel::from(rows)));
+    frame.set_photos_loading(false);
+    demand(app);
 }
 
 const MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;

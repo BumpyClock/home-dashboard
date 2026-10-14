@@ -144,7 +144,6 @@ pub fn install(app: &AppWindow, idle_secs: u64) -> Rc<Guard> {
         }
     });
     saver.set_active(config.start_active);
-    photos::demand(app);
     Rc::new(Guard {
         app: app.as_weak(),
         timer: Timer::default(),
@@ -156,6 +155,39 @@ pub fn install(app: &AppWindow, idle_secs: u64) -> Rc<Guard> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
+    use slint::platform::{Platform, PlatformError, WindowAdapter};
+
+    struct TestPlatform;
+
+    impl Platform for TestPlatform {
+        fn create_window_adapter(&self) -> Result<Rc<dyn WindowAdapter>, PlatformError> {
+            Ok(MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer))
+        }
+    }
+
+    #[test]
+    fn saver_layer_demands_only_when_its_inputs_change() {
+        std::thread::spawn(|| {
+            slint::platform::set_platform(Box::new(TestPlatform)).unwrap();
+            let app = AppWindow::new().unwrap();
+            let demands = Rc::new(Cell::new(0));
+            let count = demands.clone();
+            app.global::<Saver>()
+                .on_demand(move || count.set(count.get() + 1));
+            slint::platform::update_timers_and_animations();
+            assert_eq!(demands.get(), 0);
+            app.global::<Saver>().set_active(false);
+            slint::platform::update_timers_and_animations();
+            assert_eq!(demands.get(), 0);
+            app.global::<Saver>().set_active(true);
+            slint::platform::update_timers_and_animations();
+            assert_eq!(demands.get(), 1);
+        })
+        .join()
+        .unwrap();
+    }
+
 
     fn config(values: &[(&str, &str)], idle_secs: u64) -> Config {
         Config::parse(|name| {

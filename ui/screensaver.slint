@@ -153,6 +153,6 @@ export component SaverLayer inherits Rectangle {
     changed width => { report-size(); }
     changed height => { report-size(); }
     changed demand-inputs => { Saver.demand(); }
-    init => { report-size(); Saver.demand(); }
+    init => { report-size(); }
     if Saver.active: Screensaver { }
 }

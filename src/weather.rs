@@ -13,7 +13,10 @@ fn wmo(code: i64, day: bool) -> (&'static str, &'static str) {
     match code {
         0 => ("Clear", if day { "sun" } else { "moon" }),
         1 => ("Mostly clear", if day { "sun" } else { "moon" }),
-        2 => ("Partly cloudy", if day { "cloud-sun" } else { "cloud-moon" }),
+        2 => (
+            "Partly cloudy",
+            if day { "cloud-sun" } else { "cloud-moon" },
+        ),
         3 => ("Cloudy", "cloud"),
         45 | 48 => ("Fog", "cloud-fog"),
         51..=57 => ("Drizzle", "cloud-drizzle"),
@@ -24,7 +27,9 @@ fn wmo(code: i64, day: bool) -> (&'static str, &'static str) {
     }
 }
 
-fn wet(code: i64) -> bool { code >= 51 }
+fn wet(code: i64) -> bool {
+    code >= 51
+}
 
 fn hour_label(h: usize) -> String {
     let h = h % 24;
@@ -32,7 +37,9 @@ fn hour_label(h: usize) -> String {
     format!("{n} {}", if h < 12 { "am" } else { "pm" })
 }
 
-fn temperature(value: i64) -> String { format!("{value}°") }
+fn temperature(value: i64) -> String {
+    format!("{value}°")
+}
 
 fn weather_line(city: &str, hi: i64, lo: i64) -> String {
     format!("{city} · H {} L {}", temperature(hi), temperature(lo))
@@ -43,17 +50,26 @@ const MAX_WEATHER_BYTES: u64 = 64 * 1024;
 const SLOT_STRIDE_H: usize = 3;
 const SLOT_COUNT: usize = 5;
 
-fn next_slot_boundary_h(now_h: usize) -> usize { (now_h / SLOT_STRIDE_H + 1) * SLOT_STRIDE_H }
+fn next_slot_boundary_h(now_h: usize) -> usize {
+    (now_h / SLOT_STRIDE_H + 1) * SLOT_STRIDE_H
+}
 
 fn read_weather(body: &mut ureq::Body) -> Result<serde_json::Value, String> {
-    let text = body.with_config().limit(MAX_WEATHER_BYTES).read_to_string().map_err(|e| e.to_string())?;
+    let text = body
+        .with_config()
+        .limit(MAX_WEATHER_BYTES)
+        .read_to_string()
+        .map_err(|e| e.to_string())?;
     serde_json::from_str(&text).map_err(|e| e.to_string())
 }
 
 fn hourly_matches(current: &ModelRc<HourSlot>, slots: &[HourSlot]) -> bool {
-    current.row_count() == slots.len() && slots.iter().enumerate().all(|(i, next)| {
-        current.row_data(i).is_some_and(|old| old.label == next.label && old.icon == next.icon && old.temp == next.temp)
-    })
+    current.row_count() == slots.len()
+        && slots.iter().enumerate().all(|(i, next)| {
+            current.row_data(i).is_some_and(|old| {
+                old.label == next.label && old.icon == next.icon && old.temp == next.temp
+            })
+        })
 }
 
 pub fn spawn(weak: slint::Weak<AppWindow>) {
@@ -62,7 +78,9 @@ pub fn spawn(weak: slint::Weak<AppWindow>) {
         let lon = std::env::var("FRAME_LON").unwrap_or_else(|_| "-122.3321".into());
         let city = city();
         let agent: ureq::Agent = ureq::Agent::config_builder()
-            .timeout_global(Some(Duration::from_secs(20))).build().into();
+            .timeout_global(Some(Duration::from_secs(20)))
+            .build()
+            .into();
         let url = format!(
             "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}\
              &current=temperature_2m,weather_code,is_day\
@@ -70,7 +88,9 @@ pub fn spawn(weak: slint::Weak<AppWindow>) {
              &daily=temperature_2m_max,temperature_2m_min&forecast_days=2&timezone=auto"
         );
         loop {
-            let parsed = agent.get(&url).call()
+            let parsed = agent
+                .get(&url)
+                .call()
                 .map_err(|e| e.to_string())
                 .and_then(|mut r| read_weather(r.body_mut()));
             match parsed {
@@ -94,19 +114,29 @@ pub fn spawn(weak: slint::Weak<AppWindow>) {
                         }
                     } else {
                         match ahead.clone().find(|&i| code_at(i).is_some_and(wet)) {
-                            Some(i) => format!("{} after {}", wmo(code_at(i).unwrap(), true).0.to_lowercase(), hour_label(i)),
+                            Some(i) => format!(
+                                "{} after {}",
+                                wmo(code_at(i).unwrap(), true).0.to_lowercase(),
+                                hour_label(i)
+                            ),
                             None => "dry for the next 12 h".into(),
                         }
                     };
 
                     let first = next_slot_boundary_h(now_h);
-                    let slots: Vec<HourSlot> = (0..SLOT_COUNT).filter_map(|k| {
-                        let i = first + k * SLOT_STRIDE_H;
-                        let t = num(&hourly["temperature_2m"][i])?;
-                        let day = hourly["is_day"][i].as_i64().unwrap_or(1) == 1;
-                        let (_, ic) = wmo(code_at(i)?, day);
-                        Some(HourSlot { label: hour_label(i).into(), icon: ic.into(), temp: temperature(t).into() })
-                    }).collect();
+                    let slots: Vec<HourSlot> = (0..SLOT_COUNT)
+                        .filter_map(|k| {
+                            let i = first + k * SLOT_STRIDE_H;
+                            let t = num(&hourly["temperature_2m"][i])?;
+                            let day = hourly["is_day"][i].as_i64().unwrap_or(1) == 1;
+                            let (_, ic) = wmo(code_at(i)?, day);
+                            Some(HourSlot {
+                                label: hour_label(i).into(),
+                                icon: ic.into(),
+                                temp: temperature(t).into(),
+                            })
+                        })
+                        .collect();
 
                     let w = weak.clone();
                     let line = SharedString::from(weather_line(&city, hi, lo));
@@ -117,11 +147,21 @@ pub fn spawn(weak: slint::Weak<AppWindow>) {
                         let cond = SharedString::from(cond);
                         let sub = SharedString::from(sub);
                         let icon = SharedString::from(icon);
-                        if f.get_weather_line() != line { f.set_weather_line(line); }
-                        if f.get_temp() != temp { f.set_temp(temp); }
-                        if f.get_cond() != cond { f.set_cond(cond); }
-                        if f.get_cond_sub() != sub { f.set_cond_sub(sub); }
-                        if f.get_weather_icon() != icon { f.set_weather_icon(icon); }
+                        if f.get_weather_line() != line {
+                            f.set_weather_line(line);
+                        }
+                        if f.get_temp() != temp {
+                            f.set_temp(temp);
+                        }
+                        if f.get_cond() != cond {
+                            f.set_cond(cond);
+                        }
+                        if f.get_cond_sub() != sub {
+                            f.set_cond_sub(sub);
+                        }
+                        if f.get_weather_icon() != icon {
+                            f.set_weather_icon(icon);
+                        }
                         if !slots.is_empty() && !hourly_matches(&f.get_hourly(), &slots) {
                             f.set_hourly(ModelRc::new(VecModel::from(slots)));
                         }
@@ -143,33 +183,59 @@ mod tests {
     #[test]
     fn weather_text_uses_correct_unicode_symbols() {
         assert_eq!(temperature(-4), "-4\u{00b0}");
-        assert_eq!(weather_line("Seattle", 27, 19), "Seattle \u{00b7} H 27\u{00b0} L 19\u{00b0}");
+        assert_eq!(
+            weather_line("Seattle", 27, 19),
+            "Seattle \u{00b7} H 27\u{00b0} L 19\u{00b0}"
+        );
         assert_eq!(wmo(-1, true).0, "\u{2014}");
     }
 
     #[test]
     fn response_cap_rejects_oversized_data_and_accepts_valid_json() {
-        let mut valid = ureq::Body::builder().data(br#"{"current":{"temperature_2m":23}}"#.to_vec());
-        assert_eq!(read_weather(&mut valid).unwrap()["current"]["temperature_2m"], 23);
-        let below_limit = format!(r#"{{"pad":"{}"}}"#, " ".repeat(MAX_WEATHER_BYTES as usize - 11));
+        let mut valid =
+            ureq::Body::builder().data(br#"{"current":{"temperature_2m":23}}"#.to_vec());
+        assert_eq!(
+            read_weather(&mut valid).unwrap()["current"]["temperature_2m"],
+            23
+        );
+        let below_limit = format!(
+            r#"{{"pad":"{}"}}"#,
+            " ".repeat(MAX_WEATHER_BYTES as usize - 11)
+        );
         assert_eq!(below_limit.len(), MAX_WEATHER_BYTES as usize - 1);
         let mut bounded = ureq::Body::builder().data(below_limit);
         assert!(read_weather(&mut bounded).is_ok());
-        let too_large = format!(r#"{{"pad":"{}"}}"#, " ".repeat(MAX_WEATHER_BYTES as usize - 9));
+        let too_large = format!(
+            r#"{{"pad":"{}"}}"#,
+            " ".repeat(MAX_WEATHER_BYTES as usize - 9)
+        );
         let mut oversized = ureq::Body::builder().data(too_large);
         assert!(read_weather(&mut oversized).is_err());
     }
 
     #[test]
     fn hourly_comparison_covers_every_field_and_row_count() {
-        let slot = HourSlot { label: "9 am".into(), icon: "sun".into(), temp: "23°".into() };
+        let slot = HourSlot {
+            label: "9 am".into(),
+            icon: "sun".into(),
+            temp: "23°".into(),
+        };
         let model = ModelRc::new(VecModel::from(vec![slot.clone()]));
         assert!(hourly_matches(&model, &[slot.clone()]));
         assert!(!hourly_matches(&model, &[]));
         for changed in [
-            HourSlot { label: "12 pm".into(), ..slot.clone() },
-            HourSlot { icon: "rain".into(), ..slot.clone() },
-            HourSlot { temp: "24°".into(), ..slot },
+            HourSlot {
+                label: "12 pm".into(),
+                ..slot.clone()
+            },
+            HourSlot {
+                icon: "rain".into(),
+                ..slot.clone()
+            },
+            HourSlot {
+                temp: "24°".into(),
+                ..slot
+            },
         ] {
             assert!(!hourly_matches(&model, &[changed]));
         }

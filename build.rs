@@ -93,7 +93,10 @@ fn palette(text: &str, prefix: &str) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     for (at, _) in text.match_indices(prefix) {
         let hex_start = at + prefix.len();
-        let hex: String = text[hex_start..].chars().take_while(|c| c.is_ascii_hexdigit()).collect();
+        let hex: String = text[hex_start..]
+            .chars()
+            .take_while(|c| c.is_ascii_hexdigit())
+            .collect();
         let name: String = text[..at]
             .trim_end_matches(':')
             .trim_end()
@@ -113,7 +116,10 @@ fn palette(text: &str, prefix: &str) -> BTreeMap<String, String> {
 
 fn check_tokens() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    println!("cargo:rerun-if-changed={}", root.join("src/settings.rs").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        root.join("src/settings.rs").display()
+    );
     let files = slint_files(&root);
     let mut problems: Vec<String> = Vec::new();
 
@@ -125,22 +131,36 @@ fn check_tokens() {
             let line = raw.split("//").next().unwrap_or("");
             let (hex, px, dur) = literals(line);
             for h in hex {
-                problems.push(format!("{name}:{}: raw color {h} — use Theme.c.* or Fixed.*", n + 1));
+                problems.push(format!(
+                    "{name}:{}: raw color {h} — use Theme.c.* or Fixed.*",
+                    n + 1
+                ));
             }
             for p in px {
                 if !ALLOWED_PX.contains(&p.as_str()) {
-                    problems.push(format!("{name}:{}: raw length {p} — add/use a token in ui/tokens.slint", n + 1));
+                    problems.push(format!(
+                        "{name}:{}: raw length {p} — add/use a token in ui/tokens.slint",
+                        n + 1
+                    ));
                 }
             }
             for d in dur {
                 if !ALLOWED_DUR.contains(&d.as_str()) {
-                    problems.push(format!("{name}:{}: raw duration {d} — add/use a Motion.* token", n + 1));
+                    problems.push(format!(
+                        "{name}:{}: raw duration {d} — add/use a Motion.* token",
+                        n + 1
+                    ));
                 }
             }
         }
     }
 
-    let get = |name: &str| files.iter().find(|(n, _)| n == name).map_or("", |(_, t)| t.as_str());
+    let get = |name: &str| {
+        files
+            .iter()
+            .find(|(n, _)| n == name)
+            .map_or("", |(_, t)| t.as_str())
+    };
     let others: String = files
         .iter()
         .filter(|(n, _)| n != "tokens.slint")
@@ -149,7 +169,9 @@ fn check_tokens() {
         .join("\n");
     for (g, tok) in defined_tokens(get("tokens.slint")) {
         if !others.contains(&format!("{g}.{tok}")) {
-            problems.push(format!("tokens.slint: unused token {g}.{tok} — use it or delete it"));
+            problems.push(format!(
+                "tokens.slint: unused token {g}.{tok} — use it or delete it"
+            ));
         }
     }
     for (name, text) in &files {
@@ -166,8 +188,8 @@ fn check_tokens() {
 
     let slint_linen = palette(get("theme.slint"), ": #");
     let settings = std::fs::read_to_string(root.join("src/settings.rs")).expect("read settings.rs");
-    let linen = &settings[settings.find("(\"Linen\"").expect("Linen palette")..];
-    let linen = &linen[..linen.find("}),").expect("end of Linen palette")];
+    let linen = &settings[settings.find("\"Linen\"").expect("Linen palette")..];
+    let linen = &linen[..linen.find('}').expect("end of Linen palette")];
     let rust_linen = palette(linen, ": c(0x");
     let keys: std::collections::BTreeSet<_> = slint_linen.keys().chain(rust_linen.keys()).collect();
     for k in keys {

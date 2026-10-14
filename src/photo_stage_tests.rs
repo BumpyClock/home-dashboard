@@ -58,7 +58,8 @@ impl Scene {
     fn advance(&mut self, duration: Duration) {
         let end = self.clock.get() + duration;
         while self.clock.get() < end {
-            self.clock.set((self.clock.get() + Duration::from_millis(5)).min(end));
+            self.clock
+                .set((self.clock.get() + Duration::from_millis(5)).min(end));
             slint::platform::update_timers_and_animations();
         }
     }
@@ -81,7 +82,9 @@ impl Scene {
 }
 
 fn isolated(test: impl FnOnce(&mut Scene) + Send + 'static) {
-    std::thread::spawn(move || test(&mut Scene::new())).join().unwrap();
+    std::thread::spawn(move || test(&mut Scene::new()))
+        .join()
+        .unwrap();
 }
 
 #[test]

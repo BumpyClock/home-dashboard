@@ -17,7 +17,11 @@ pub enum PhotoRequest {
 
 impl PhotoRequest {
     pub fn generation(self) -> u64 {
-        match self { PhotoRequest::Started(generation) | PhotoRequest::AlreadyWanted(generation) => generation }
+        match self {
+            PhotoRequest::Started(generation) | PhotoRequest::AlreadyWanted(generation) => {
+                generation
+            }
+        }
     }
 
     pub fn started(self) -> bool {
@@ -27,7 +31,13 @@ impl PhotoRequest {
 
 impl PhotoLoadState {
     pub const fn new() -> Self {
-        Self { generation: 0, completed: None, active: None, published: false, baked: false }
+        Self {
+            generation: 0,
+            completed: None,
+            active: None,
+            published: false,
+            baked: false,
+        }
     }
 
     pub fn request_mode(&mut self, size: PhotoSize, baked: bool) -> PhotoRequest {
@@ -81,7 +91,9 @@ mod tests {
     use super::{PhotoLoadState, PhotoRequest};
 
     fn started(request: PhotoRequest) -> u64 {
-        let PhotoRequest::Started(generation) = request else { panic!("expected a started batch") };
+        let PhotoRequest::Started(generation) = request else {
+            panic!("expected a started batch")
+        };
         generation
     }
 
@@ -96,7 +108,10 @@ mod tests {
         state.finish(plain);
         state.ready(baked, size);
         state.finish(baked);
-        assert_eq!(state.request_mode(size, true), PhotoRequest::AlreadyWanted(state.generation));
+        assert_eq!(
+            state.request_mode(size, true),
+            PhotoRequest::AlreadyWanted(state.generation)
+        );
         assert!(state.request_mode(size, false).started());
     }
 
@@ -106,7 +121,10 @@ mod tests {
         let first = started(state.request((388, 280, 180)));
         state.ready(first, (388, 280, 180));
         state.finish(first);
-        assert_eq!(state.request((388, 280, 180)), PhotoRequest::AlreadyWanted(state.generation));
+        assert_eq!(
+            state.request((388, 280, 180)),
+            PhotoRequest::AlreadyWanted(state.generation)
+        );
         let resized = started(state.request((600, 400, 180)));
         state.finish(resized);
         assert!(state.request((600, 400, 180)).started());
@@ -116,12 +134,21 @@ mod tests {
     fn duplicate_request_does_not_cancel_remaining_batch() {
         let mut state = PhotoLoadState::default();
         let first = started(state.request((388, 280, 180)));
-        assert_eq!(state.request((388, 280, 180)), PhotoRequest::AlreadyWanted(state.generation));
+        assert_eq!(
+            state.request((388, 280, 180)),
+            PhotoRequest::AlreadyWanted(state.generation)
+        );
         state.ready(first, (388, 280, 180));
-        assert_eq!(state.request((388, 280, 180)), PhotoRequest::AlreadyWanted(state.generation));
+        assert_eq!(
+            state.request((388, 280, 180)),
+            PhotoRequest::AlreadyWanted(state.generation)
+        );
         assert_eq!(state.generation, first);
         state.finish(first);
-        assert_eq!(state.request((388, 280, 180)), PhotoRequest::AlreadyWanted(state.generation));
+        assert_eq!(
+            state.request((388, 280, 180)),
+            PhotoRequest::AlreadyWanted(state.generation)
+        );
     }
 
     #[test]
@@ -131,11 +158,17 @@ mod tests {
         state.ready(first, (388, 280, 180));
         state.finish(first);
         let resized = started(state.request((600, 400, 180)));
-        assert_eq!(state.request((388, 280, 180)), PhotoRequest::AlreadyWanted(state.generation));
+        assert_eq!(
+            state.request((388, 280, 180)),
+            PhotoRequest::AlreadyWanted(state.generation)
+        );
         assert!(state.generation > resized);
         state.ready(resized, (600, 400, 180));
         state.finish(resized);
-        assert_eq!(state.request((388, 280, 180)), PhotoRequest::AlreadyWanted(state.generation));
+        assert_eq!(
+            state.request((388, 280, 180)),
+            PhotoRequest::AlreadyWanted(state.generation)
+        );
         assert!(state.request((600, 400, 180)).started());
     }
 
@@ -149,7 +182,10 @@ mod tests {
         assert!(returned > resized);
         state.finish(first);
         state.finish(resized);
-        assert_eq!(state.request((388, 280, 180)), PhotoRequest::AlreadyWanted(state.generation));
+        assert_eq!(
+            state.request((388, 280, 180)),
+            PhotoRequest::AlreadyWanted(state.generation)
+        );
         state.finish(returned);
         assert!(state.request((388, 280, 180)).started());
     }
@@ -167,7 +203,10 @@ mod tests {
         state.finish(resized);
         state.ready(returned, (388, 280, 180));
         state.finish(returned);
-        assert_eq!(state.request((388, 280, 180)), PhotoRequest::AlreadyWanted(state.generation));
+        assert_eq!(
+            state.request((388, 280, 180)),
+            PhotoRequest::AlreadyWanted(state.generation)
+        );
         assert!(state.request((600, 400, 180)).started());
     }
 
@@ -181,7 +220,10 @@ mod tests {
         assert!(resized_scrim > first);
         state.ready(resized_scrim, (388, 280, 90));
         state.finish(resized_scrim);
-        assert_eq!(state.request((388, 280, 90)), PhotoRequest::AlreadyWanted(state.generation));
+        assert_eq!(
+            state.request((388, 280, 90)),
+            PhotoRequest::AlreadyWanted(state.generation)
+        );
         assert!(state.request((388, 280, 180)).started());
     }
 }

@@ -1,5 +1,5 @@
-use chrono::{Duration, Local, NaiveDate, NaiveDateTime, NaiveTime};
 use crate::household::PersonIdx;
+use chrono::{Duration, Local, NaiveDate, NaiveDateTime, NaiveTime};
 
 #[derive(Clone, Debug)]
 pub struct Event {
@@ -30,7 +30,11 @@ impl CalendarSource for DemoCalendar {
         const KABIR: PersonIdx = PersonIdx::new(2);
         const MIRA: PersonIdx = PersonIdx::new(3);
         let at = |h: u32, m: u32| day.and_time(NaiveTime::from_hms_opt(h, m, 0).unwrap());
-        let ev = |start: NaiveDateTime, end: Option<NaiveDateTime>, title: &str, detail: &str, people: &[PersonIdx]| Event {
+        let ev = |start: NaiveDateTime,
+                  end: Option<NaiveDateTime>,
+                  title: &str,
+                  detail: &str,
+                  people: &[PersonIdx]| Event {
             start,
             end,
             title: title.into(),
@@ -41,7 +45,13 @@ impl CalendarSource for DemoCalendar {
         let today = Local::now().date_naive();
         let mut events = if day == today + Duration::days(1) {
             vec![
-                ev(at(8, 0), Some(at(8, 30)), "School drop-off", "Aditya driving", &[ADITYA, KABIR, MIRA]),
+                ev(
+                    at(8, 0),
+                    Some(at(8, 30)),
+                    "School drop-off",
+                    "Aditya driving",
+                    &[ADITYA, KABIR, MIRA],
+                ),
                 ev(at(17, 30), None, "Kabir's PTM", "Room 4B", &[KABIR, NEHA]),
                 ev(at(20, 0), None, "Book club", "At Priya's", &[NEHA]),
             ]
@@ -49,13 +59,43 @@ impl CalendarSource for DemoCalendar {
             vec![
                 Event {
                     heads_up: Some("School run leaves".into()),
-                    ..ev(at(8, 0), Some(at(8, 30)), "School drop-off", "Neha driving", &[NEHA, KABIR, MIRA])
+                    ..ev(
+                        at(8, 0),
+                        Some(at(8, 30)),
+                        "School drop-off",
+                        "Neha driving",
+                        &[NEHA, KABIR, MIRA],
+                    )
                 },
                 ev(at(10, 30), None, "Plumber visit", "Kitchen sink", &[NEHA]),
-                ev(at(13, 0), None, "Video call with Dadi", "WhatsApp", &[ADITYA, NEHA]),
-                ev(at(16, 0), Some(at(17, 0)), "Kabir's swim class", "HSR pool · Aditya picks up", &[ADITYA, KABIR]),
-                ev(at(18, 0), Some(at(18, 45)), "Mira's piano lesson", "Mrs. Iyer's", &[MIRA]),
-                ev(at(19, 30), Some(at(21, 0)), "Family dinner", "Rajma night", &[ADITYA, NEHA, KABIR, MIRA]),
+                ev(
+                    at(13, 0),
+                    None,
+                    "Video call with Dadi",
+                    "WhatsApp",
+                    &[ADITYA, NEHA],
+                ),
+                ev(
+                    at(16, 0),
+                    Some(at(17, 0)),
+                    "Kabir's swim class",
+                    "HSR pool · Aditya picks up",
+                    &[ADITYA, KABIR],
+                ),
+                ev(
+                    at(18, 0),
+                    Some(at(18, 45)),
+                    "Mira's piano lesson",
+                    "Mrs. Iyer's",
+                    &[MIRA],
+                ),
+                ev(
+                    at(19, 30),
+                    Some(at(21, 0)),
+                    "Family dinner",
+                    "Rajma night",
+                    &[ADITYA, NEHA, KABIR, MIRA],
+                ),
             ]
         };
         events.sort_by_key(|e| e.start);

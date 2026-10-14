@@ -507,7 +507,10 @@ mod tests {
             assert_eq!(calibration.angle(sample), Some(angle));
         }
         assert_eq!(calibration.angle([0.5, 0.0, 0.75_f64.sqrt()]), Some(270));
-        assert_eq!(calibration.angle([0.49, 0.0, (1.0 - 0.49_f64.powi(2)).sqrt()]), None);
+        assert_eq!(
+            calibration.angle([0.49, 0.0, (1.0 - 0.49_f64.powi(2)).sqrt()]),
+            None
+        );
     }
 
     #[test]

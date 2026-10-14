@@ -1,6 +1,6 @@
-use slint::{ComponentHandle, Model, Timer};
 #[cfg(all(feature = "frame", target_os = "linux"))]
 use slint::TimerMode;
+use slint::{ComponentHandle, Model, Timer};
 use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
@@ -88,18 +88,23 @@ impl Guard {
 
     #[cfg(all(feature = "frame", target_os = "linux"))]
     fn arm_after_idle(self: &Rc<Self>) {
-        let Some(idle_after) = self.idle_after.get() else { return };
+        let Some(idle_after) = self.idle_after.get() else {
+            return;
+        };
         let weak = Rc::downgrade(self);
-        self.timer.start(TimerMode::SingleShot, idle_after, move || {
-            if let Some(guard) = weak.upgrade() {
-                guard.show_or_wait_for_photos();
-            }
-        });
+        self.timer
+            .start(TimerMode::SingleShot, idle_after, move || {
+                if let Some(guard) = weak.upgrade() {
+                    guard.show_or_wait_for_photos();
+                }
+            });
     }
 
     #[cfg(all(feature = "frame", target_os = "linux"))]
     fn show_or_wait_for_photos(self: &Rc<Self>) {
-        let Some(app) = self.app.upgrade() else { return };
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
         if app.global::<Frame>().get_photos_loading() {
             self.retry_while_photos_loading();
         } else if photos::count() > 0 {
@@ -110,11 +115,12 @@ impl Guard {
     #[cfg(all(feature = "frame", target_os = "linux"))]
     fn retry_while_photos_loading(self: &Rc<Self>) {
         let weak = Rc::downgrade(self);
-        self.timer.start(TimerMode::SingleShot, PHOTOS_LOADING_RETRY, move || {
-            if let Some(guard) = weak.upgrade() {
-                guard.show_or_wait_for_photos();
-            }
-        });
+        self.timer
+            .start(TimerMode::SingleShot, PHOTOS_LOADING_RETRY, move || {
+                if let Some(guard) = weak.upgrade() {
+                    guard.show_or_wait_for_photos();
+                }
+            });
     }
 }
 
@@ -188,14 +194,16 @@ mod tests {
         .unwrap();
     }
 
-
     fn config(values: &[(&str, &str)], idle_secs: u64) -> Config {
-        Config::parse(|name| {
-            values
-                .iter()
-                .find(|(key, _)| *key == name)
-                .map(|(_, value)| value.to_string())
-        }, idle_secs)
+        Config::parse(
+            |name| {
+                values
+                    .iter()
+                    .find(|(key, _)| *key == name)
+                    .map(|(_, value)| value.to_string())
+            },
+            idle_secs,
+        )
     }
 
     #[test]
@@ -241,19 +249,13 @@ mod tests {
 
     #[test]
     fn benchmark_suppresses_automatic_and_startup_saver() {
-        let config = config(&[
-            ("FRAME_BENCHMARK", "1"),
-            ("FRAME_SCREENSAVER", "1"),
-        ], 1);
+        let config = config(&[("FRAME_BENCHMARK", "1"), ("FRAME_SCREENSAVER", "1")], 1);
         assert!(config.idle_after.is_none());
         assert!(!config.start_active);
     }
 
     #[test]
     fn custom_idle_delay_is_used() {
-        assert_eq!(
-            config(&[], 30).idle_after,
-            Some(Duration::from_secs(30))
-        );
+        assert_eq!(config(&[], 30).idle_after, Some(Duration::from_secs(30)));
     }
 }

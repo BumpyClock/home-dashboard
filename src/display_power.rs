@@ -645,7 +645,8 @@ mod runtime {
             let axes = std::fs::read_to_string(capabilities.join("abs")).unwrap_or_default();
             let pointer = PointerCapabilities {
                 touch_button: capability(&keys, usize::from(BTN_TOUCH), bits),
-                mouse_buttons: (BTN_MOUSE..=BTN_TASK).any(|code| capability(&keys, usize::from(code), bits)),
+                mouse_buttons: (BTN_MOUSE..=BTN_TASK)
+                    .any(|code| capability(&keys, usize::from(code), bits)),
                 multitouch: capability(&axes, usize::from(ABS_MT_TRACKING_ID), bits),
                 slots: capability(&axes, usize::from(ABS_MT_SLOT), bits),
             };
@@ -892,7 +893,8 @@ mod runtime {
             let (files, pointer_failed) = open_inputs()?;
             let day_brightness = backlight.raw(config.day);
             let hardware = backlight.clone();
-            let restore = BrightnessRestore::spawn(day_brightness, move |value| hardware.write(value))?;
+            let restore =
+                BrightnessRestore::spawn(day_brightness, move |value| hardware.write(value))?;
             let controller = Rc::new(Controller {
                 config,
                 backlight,

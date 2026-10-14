@@ -482,9 +482,9 @@ export component PhotoCard inherits PhotoStage {
 export component ChoreDot inherits Rectangle {
     in property <int> state;
     in property <color> tint;
-    width: Size.dot-chore;
-    height: Size.dot-chore;
-    border-radius: Size.dot-chore / 2;
+    width: Size.chore-day-cell;
+    height: Size.chore-day-cell;
+    border-radius: Size.chore-day-cell / 2;
     background: state == 1 ? tint : (state == 2 ? transparent : Theme.c.dot-empty);
     border-width: state == 2 ? Size.line-mid : 0px;
     border-color: tint;

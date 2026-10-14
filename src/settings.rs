@@ -15,15 +15,18 @@ pub struct Settings {
     pub scale: usize,
     pub clock24: bool,
     pub motion: usize,
+    pub photo_slide: bool,
+    pub screensaver_idle: usize,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { theme: 0, display_font: 0, body_font: 0, scale: 0, clock24: true, motion: 0 }
+        Self { theme: 0, display_font: 0, body_font: 0, scale: 0, clock24: true, motion: 0, photo_slide: true, screensaver_idle: 2 }
     }
 }
 
 pub const SCALES: [f32; 3] = [1.0, 1.12, 1.25];
+pub const SCREENSAVER_IDLE_SECS: [u64; 4] = [0, 60, 120, 300];
 
 pub const DISPLAY_FONTS: [(&str, &str); 4] = [
     ("Instrument Serif", "Instrument Serif"),
@@ -218,6 +221,8 @@ impl Settings {
             body_font: idx("body_font", BODY_FONTS.len(), d.body_font),
             scale: idx("scale", SCALES.len(), d.scale),
             clock24: v["clock24"].as_bool().unwrap_or(d.clock24),
+            photo_slide: v["photo_slide"].as_bool().unwrap_or(d.photo_slide),
+            screensaver_idle: idx("screensaver_idle", SCREENSAVER_IDLE_SECS.len(), d.screensaver_idle),
             motion: v["motion"].as_u64().map(|m| (m as usize).min(2))
                 .or_else(|| v["motion"].as_bool().map(|on| if on { 0 } else { 2 }))
                 .unwrap_or(d.motion),
@@ -228,6 +233,7 @@ impl Settings {
         let json = serde_json::json!({
             "theme": self.theme, "display_font": self.display_font, "body_font": self.body_font,
             "scale": self.scale, "clock24": self.clock24, "motion": self.motion,
+            "photo_slide": self.photo_slide, "screensaver_idle": self.screensaver_idle,
         });
         let snapshot = SaveSnapshot { path: path(), json: serde_json::to_string_pretty(&json).unwrap() };
         let writer = WRITER.get_or_init(|| {

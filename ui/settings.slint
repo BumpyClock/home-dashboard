@@ -236,5 +236,27 @@ export component SettingsScreen inherits Flickable {
                 }
             }
         }
+        HorizontalLayout {
+            spacing: Space.xxl;
+            Section {
+                horizontal-stretch: 2;
+                title: "Photo transition";
+                Segmented {
+                    options: ["Slide", "Fade"];
+                    selected: Frame.photo-transition-index;
+                    picked(i) => { Frame.pick-photo-transition(i); }
+                }
+            }
+            Section {
+                horizontal-stretch: 3;
+                title: "Screensaver";
+                hint: "Opens after no touch";
+                Segmented {
+                    options: ["Never", "1 min", "2 min", "5 min"];
+                    selected: Frame.screensaver-idle-index;
+                    picked(i) => { Frame.pick-screensaver-idle(i); }
+                }
+            }
+        }
     }
 }

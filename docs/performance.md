@@ -78,8 +78,8 @@ of channels were identical; maximum error was 2/255 and mean error was
 0.1938 channel units. The ring's corners were also verified. No duplicate
 gradient stops or colors are introduced by baking.
 
-Slides are now the source default in all builds;
-`FRAME_PHOTO_TRANSITION=fade` selects the older crossfade. Production release
+Slides are the default in all builds; the Fade transition is selected
+in the Settings tab. Production release
 `b27b4b6f` includes these defaults; checkpoint `9e34868` remains a rollback. The matched slide workload and GPU appearance checks passed;
 its cadence still falls short of stable 60 FPS.
 
@@ -120,8 +120,8 @@ filename for each run; the app refuses to overwrite an existing capture.
 For cache A/B tests, use the same executable with
 `FRAME_CACHE_MAIN_CONTENT=0` and `FRAME_CACHE_MAIN_CONTENT=1`. The separate
 `FRAME_CACHE_DASHBOARD=0` option disables the earlier card caches.
-Set the same explicit `FRAME_PHOTO_TRANSITION` on both sides of a cache
-comparison; current source defaults to `slide`. Alternate or
+Use the same Photo transition setting on both sides of a cache
+comparison; the default is Slide. Alternate or
 repeat matched runs when temperature, CPU frequency, or other load drifts.
 Compare `FRAME_PHOTO_SCRIM=baked` separately against `FRAME_PHOTO_SCRIM=svg`
 with the same photos, transition, settings, GPU policy, and temperature.

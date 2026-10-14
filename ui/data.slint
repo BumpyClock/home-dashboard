@@ -11,7 +11,7 @@ export struct HourSlot { label: string, icon: string, temp: string }
 // Only photos near the one on screen carry pixels; the rest are empty (src/photos.rs).
 // image = Home card size, full = screensaver, thumb = grid tile.
 export struct Photo { image: image, full: image, thumb: image, title: string }
-export struct ThemeSwatch { name: string, bg: color, surface: color, ink: color, muted: color, accent: color, rail: color }
+export struct ThemeSwatch { name: string, bg: color, surface: color, ink: color, accent: color, rail: color }
 // family "" = reuse the body font
 export struct FontChoice { label: string, family: string }
 
@@ -45,6 +45,8 @@ export global Frame {
     in property <[Photo]> photos;
     in-out property <int> photo-index;
     in property <bool> photo-transition-slide: true;
+    in property <int> photo-transition-index;
+    in property <int> screensaver-idle-index;
     in property <bool> photo-scrim-bake;
     in property <bool> photo-scrim-baked;
     in property <bool> night-active;
@@ -91,4 +93,6 @@ export global Frame {
     callback pick-clock24(bool);
     in property <int> motion-index;
     callback pick-motion(int);
+    callback pick-photo-transition(int);
+    callback pick-screensaver-idle(int);
 }

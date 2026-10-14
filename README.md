@@ -26,16 +26,13 @@ Useful env vars:
 | `FRAME_TAB=0..5` | Start on a tab: Home, Calendar, Photos, Lists, Meals, Settings. |
 | `FRAME_SETTINGS=path.json` | Settings file (default `~/.config/family-frame/settings.json`). |
 | `FRAME_PHOTOS=dir` | Folder of `.jpg`/`.jpeg` photos, oldest EXIF date first (default `assets/photos`, also the fallback when the folder is empty). Captions are the EXIF month and year. |
-| `FRAME_SCREENSAVER_IDLE=secs` | Seconds without touch before the screensaver opens (default 120, `0` = never). Needs the frame input observer; on desktop open it from the Photos tab. |
 | `FRAME_SCREENSAVER=1` | Start in the screensaver (screenshots). |
-| `FRAME_REDUCED_MOTION=1` | Force motion off. |
 | `FRAME_FORCE_URGENT=1` | Pulse the "next up" dot as if an event is ≤15 min away. |
 | `FRAME_CACHE_MAIN_CONTENT=0` | Disable Agenda heading/rows, navigation button layouts, and Settings heading/card-body caches for comparison. Enabled by default in frame builds. Moving notches, Header, Chores, and animated control outlines draw directly. |
 | `FRAME_CACHE_DASHBOARD=0` | Disable the summary and weather caches for comparison. |
 | `FRAME_IDLE_DIM_SECONDS=180`, `FRAME_IDLE_BRIGHTNESS=20` | Frame builds dim after three minutes of human inactivity. Touch restores `FRAME_DAY_BRIGHTNESS` (65%). Set the timeout to `0` to disable. |
 | `FRAME_NIGHT_START=22:00`, `FRAME_NIGHT_END=06:00` | Opt into a local-time night window. Idle brightness becomes `FRAME_NIGHT_BRIGHTNESS` (10%); touch restores 65%. Automatic slides pause during this window. |
 | `FRAME_AUTO_ROTATE=0` | Disable calibrated SC7A20 rotation in frame builds. See [calibration and configuration](docs/orientation.md). |
-| `FRAME_PHOTO_TRANSITION=fade` | Use a crossfade. Slides are the default in desktop and frame builds. |
 | `FRAME_PHOTO_SCRIM=svg` / `baked` | Select an SVG caption overlay or a ramp fused into decoded photos. Frame builds default to `baked`; desktop builds default to `svg`. |
 | `FRAME_METRICS_OUTPUT=/absolute/external/run.json`, `FRAME_BENCHMARK=1` | Capture the scripted frame workload after warmup. See [measurement instructions](docs/performance.md). |
 
@@ -47,7 +44,7 @@ Useful env vars:
 | People, chores, shared list | `src/household.rs` | Demo data |
 | Photos | `src/photos.rs` | Real JPEGs from `FRAME_PHOTOS`; only the photos around the one shown (plus visible grid thumbnails) stay decoded |
 | Weather | `src/weather.rs` | Live Open-Meteo |
-| Settings | `src/settings.rs` | Themes, fonts, text size, clock, motion; JSON on disk |
+| Settings | `src/settings.rs` | Themes, fonts, text size, clock, motion, photo transition, screensaver delay; JSON on disk |
 
 Everything the UI shows lives in the `Frame` global (`ui/data.slint`);
 Rust fills it, the UI never computes data.
@@ -78,7 +75,8 @@ Slint copies of the Linen palette fail the build with file:line messages.
 Theme (Linen, Sage, Harbor, Paper, Night), headline font (Instrument
 Serif, DM Serif Display, Young Serif, or same as body), body font (Inter,
 Atkinson Hyperlegible), text size (100/112/125%), 24/12-hour clock, motion
-(Full / Calm / Off). Applies live, saved on change. Theme switches dip
+(Full / Calm / Off), photo transition (Slide / Fade), and screensaver
+delay (Never / 1 / 2 / 5 min). Applies live, saved on change. Theme switches dip
 through the page color.
 
 ## Performance on the frame

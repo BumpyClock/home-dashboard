@@ -295,8 +295,7 @@ navigation button layouts, and Settings headings and static card bodies.
 Moving navigation notches, the live Header and Chores, and animated Settings outlines
 draw directly. `FRAME_CACHE_MAIN_CONTENT=0` disables the first group;
 `FRAME_CACHE_DASHBOARD=0` disables the summary and weather caches.
-Current source defaults to slide transitions; `FRAME_PHOTO_TRANSITION=fade`
-opts into a crossfade. Frame builds default to baked caption ramps;
+Photo transitions default to Slide; choose Fade in the Settings tab. Frame builds default to baked caption ramps;
 `FRAME_PHOTO_SCRIM=svg` restores the overlay, and `baked` forces baking in a
 desktop build. The UI keeps the SVG overlay until the first baked batch
 publishes. Raster failure retains the previous photo batch and permits a
@@ -312,8 +311,8 @@ GPU and `/dev/dri/card1` being the display does not require a hardcoded card
 number. Use `SLINT_DRM_OUTPUT=list` or `SLINT_DRM_MODE=list` to inspect the
 detected connector and modes.
 
-The panel's native mode is 800x1280. The UI supports portrait reflow; set
-`FRAME_SIZE=800x1280` explicitly when testing this layout. For
+The panel's native mode is 800x1280, so the frame starts in the portrait
+reflow; `FRAME_SIZE=800x1280` only changes desktop preview windows. For
 landscape, `SLINT_KMS_ROTATION=90` rotates the output, but touch must use a
 matching libinput calibration matrix. Do not rotate an already calibrated
 touch configuration a second time.
@@ -437,7 +436,7 @@ Compressed JPEG input is capped at 32 MiB, source pixels at 64 MiB, resize
 intermediates at 32 MiB, and each output at 16 MiB with dimensions at most
 4096. Decode attempts beyond these limits stop without a retry loop.
 Three minutes of idleness dims the backlight; two minutes opens the
-screensaver (`FRAME_SCREENSAVER_IDLE`, `0` disables automatic entry), and any
+screensaver (delay in the Settings tab; Never disables automatic entry), and any
 tap closes it. Benchmark mode suppresses automatic screensaver entry.
 
 Photos use EXIF orientation and exact physical-size thumbnails. The CPU

@@ -1,6 +1,7 @@
 use slint::{ComponentHandle, Model, Timer};
 #[cfg(all(feature = "frame", target_os = "linux"))]
 use slint::TimerMode;
+use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -9,17 +10,16 @@ use crate::{photos, AppWindow, Frame, Saver};
 struct Config {
     start_active: bool,
     idle_after: Option<Duration>,
+    benchmark: bool,
 }
 
 impl Config {
-    fn parse(get: impl Fn(&str) -> Option<String>) -> Self {
+    fn parse(get: impl Fn(&str) -> Option<String>, idle_secs: u64) -> Self {
         let benchmark = get("FRAME_BENCHMARK").as_deref() == Some("1");
-        let seconds = get("FRAME_SCREENSAVER_IDLE")
-            .and_then(|value| value.parse::<u64>().ok())
-            .unwrap_or(120);
         Self {
             start_active: !benchmark && get("FRAME_SCREENSAVER").as_deref() == Some("1"),
-            idle_after: (!benchmark && seconds > 0).then(|| Duration::from_secs(seconds)),
+            idle_after: (!benchmark && idle_secs > 0).then(|| Duration::from_secs(idle_secs)),
+            benchmark,
         }
     }
 }
@@ -42,7 +42,8 @@ const PHOTOS_LOADING_RETRY: Duration = Duration::from_secs(1);
 pub struct Guard {
     app: slint::Weak<AppWindow>,
     timer: Timer,
-    idle_after: Option<Duration>,
+    idle_after: Cell<Option<Duration>>,
+    benchmark: bool,
 }
 
 #[cfg(all(feature = "frame", target_os = "linux"))]
@@ -60,6 +61,16 @@ impl ActivityObserver {
 }
 
 impl Guard {
+    pub fn set_idle_after(self: &Rc<Self>, idle_secs: u64) {
+        let idle = (!self.benchmark && idle_secs > 0).then(|| Duration::from_secs(idle_secs));
+        self.idle_after.set(idle);
+        #[cfg(all(feature = "frame", target_os = "linux"))]
+        match idle {
+            Some(_) => self.arm_after_idle(),
+            None => self.timer.stop(),
+        }
+    }
+
     #[cfg(all(feature = "frame", target_os = "linux"))]
     pub fn observe(self: &Rc<Self>, _observer: &ActivityObserver) {
         self.arm_after_idle();
@@ -78,7 +89,7 @@ impl Guard {
 
     #[cfg(all(feature = "frame", target_os = "linux"))]
     fn arm_after_idle(self: &Rc<Self>) {
-        let Some(idle_after) = self.idle_after else { return };
+        let Some(idle_after) = self.idle_after.get() else { return };
         let weak = Rc::downgrade(self);
         self.timer.start(TimerMode::SingleShot, idle_after, move || {
             if let Some(guard) = weak.upgrade() {
@@ -108,8 +119,8 @@ impl Guard {
     }
 }
 
-pub fn install(app: &AppWindow) -> Rc<Guard> {
-    let config = Config::parse(|name| std::env::var(name).ok());
+pub fn install(app: &AppWindow, idle_secs: u64) -> Rc<Guard> {
+    let config = Config::parse(|name| std::env::var(name).ok(), idle_secs);
     let saver = app.global::<Saver>();
     let weak = app.as_weak();
     saver.on_demand(move || {
@@ -139,7 +150,8 @@ pub fn install(app: &AppWindow) -> Rc<Guard> {
     Rc::new(Guard {
         app: app.as_weak(),
         timer: Timer::default(),
-        idle_after: config.idle_after,
+        idle_after: Cell::new(config.idle_after),
+        benchmark: config.benchmark,
     })
 }
 
@@ -147,13 +159,13 @@ pub fn install(app: &AppWindow) -> Rc<Guard> {
 mod tests {
     use super::*;
 
-    fn config(values: &[(&str, &str)]) -> Config {
+    fn config(values: &[(&str, &str)], idle_secs: u64) -> Config {
         Config::parse(|name| {
             values
                 .iter()
                 .find(|(key, _)| *key == name)
                 .map(|(_, value)| value.to_string())
-        })
+        }, idle_secs)
     }
 
     #[test]
@@ -185,14 +197,14 @@ mod tests {
 
     #[test]
     fn default_idle_waits_two_minutes_and_keeps_dashboard() {
-        let config = config(&[]);
+        let config = config(&[], 120);
         assert_eq!(config.idle_after, Some(Duration::from_secs(120)));
         assert!(!config.start_active);
     }
 
     #[test]
     fn disabling_idle_still_allows_explicit_startup() {
-        let config = config(&[("FRAME_SCREENSAVER_IDLE", "0"), ("FRAME_SCREENSAVER", "1")]);
+        let config = config(&[("FRAME_SCREENSAVER", "1")], 0);
         assert!(config.idle_after.is_none());
         assert!(config.start_active);
     }
@@ -202,25 +214,16 @@ mod tests {
         let config = config(&[
             ("FRAME_BENCHMARK", "1"),
             ("FRAME_SCREENSAVER", "1"),
-            ("FRAME_SCREENSAVER_IDLE", "1"),
-        ]);
+        ], 1);
         assert!(config.idle_after.is_none());
         assert!(!config.start_active);
     }
 
     #[test]
-    fn custom_idle_and_invalid_idle_use_expected_delays() {
+    fn custom_idle_delay_is_used() {
         assert_eq!(
-            config(&[("FRAME_SCREENSAVER_IDLE", "30")]).idle_after,
+            config(&[], 30).idle_after,
             Some(Duration::from_secs(30))
-        );
-        assert_eq!(
-            config(&[("FRAME_SCREENSAVER_IDLE", "-1")]).idle_after,
-            Some(Duration::from_secs(120))
-        );
-        assert_eq!(
-            config(&[("FRAME_SCREENSAVER_IDLE", "18446744073709551616")]).idle_after,
-            Some(Duration::from_secs(120))
         );
     }
 }

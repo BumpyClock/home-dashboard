@@ -74,6 +74,7 @@ struct State {
     list: RefCell<Vec<household::ListEntry>>,
     calendar: Box<dyn CalendarSource>,
     models: Models,
+    screensaver: RefCell<Option<Rc<screensaver::Guard>>>,
 }
 
 fn refresh_clock(app: &AppWindow, st: &State) {
@@ -199,15 +200,17 @@ fn apply_settings(app: &AppWindow, st: &State, animate_theme: bool) {
     theme.set_font_body(s(body));
     theme.set_font_display(s(display));
     theme.set_scale(settings::SCALES[set.scale]);
-    let forced_off = std::env::var("FRAME_REDUCED_MOTION").is_ok();
-    theme.set_motion(set.motion < 2 && !forced_off);
-    theme.set_ambient(set.motion == 0 && !forced_off);
+    theme.set_motion(set.motion < 2);
+    theme.set_ambient(set.motion == 0);
     f.set_motion_index(set.motion as i32);
     f.set_theme_index(set.theme as i32);
     f.set_display_font_index(set.display_font as i32);
     f.set_body_font_index(set.body_font as i32);
     f.set_scale_index(set.scale as i32);
     f.set_clock24(set.clock24);
+    f.set_photo_transition_slide(set.photo_slide);
+    f.set_photo_transition_index(if set.photo_slide { 0 } else { 1 });
+    f.set_screensaver_idle_index(set.screensaver_idle as i32);
 
     let palette = settings::themes()[set.theme].1.clone();
     if animate_theme && theme.get_motion() && theme.get_c() != palette {
@@ -247,7 +250,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     {
         let f = app.global::<Frame>();
-        f.set_photo_transition_slide(std::env::var("FRAME_PHOTO_TRANSITION").map_or(true, |v| v == "slide"));
         f.set_photo_scrim_bake(std::env::var("FRAME_PHOTO_SCRIM").map_or(cfg!(feature = "frame"), |v| v == "baked"));
         f.set_cache_dashboard(std::env::var("FRAME_CACHE_DASHBOARD").map_or(true, |v| v != "0"));
         f.set_cache_main_content(std::env::var("FRAME_CACHE_MAIN_CONTENT").map_or(cfg!(feature = "frame"), |v| v != "0"));
@@ -259,7 +261,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         f.set_chores(models.chores.clone().into());
         f.set_weather_line(s(format!("{} · H 27° L 19°", weather::city())));
         f.set_themes(ModelRc::new(VecModel::from(settings::themes().into_iter().map(|(name, p)| ThemeSwatch {
-            name: s(name), bg: p.bg, surface: p.surface, ink: p.ink, muted: p.muted, accent: p.accent, rail: p.rail,
+            name: s(name), bg: p.bg, surface: p.surface, ink: p.ink, accent: p.accent, rail: p.rail,
         }).collect::<Vec<_>>())));
         let fonts = |list: &[(&str, &str)]| ModelRc::new(VecModel::from(list.iter()
             .map(|(l, fam)| FontChoice { label: s(l), family: s(fam) }).collect::<Vec<_>>()));
@@ -277,6 +279,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         list: RefCell::new(household::demo_list()),
         calendar: Box::new(DemoCalendar),
         models,
+        screensaver: RefCell::new(None),
     });
 
     if let Some((w, h)) = std::env::var("FRAME_SIZE").ok()
@@ -364,10 +367,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     setting!(on_pick_scale, |set, i: i32| { set.scale = i as usize; });
     setting!(on_pick_clock24, |set, v: bool| { set.clock24 = v; }, refresh_clock_and_calendar);
     setting!(on_pick_motion, |set, i: i32| { set.motion = i as usize; });
+    setting!(on_pick_photo_transition, |set, i: i32| { set.photo_slide = i == 0; });
+    on!(on_pick_screensaver_idle, |app, st, i: i32| {
+        let mut set = st.settings.get();
+        set.screensaver_idle = i as usize;
+        st.settings.set(set);
+        set.save();
+        apply_settings(&app, st, true);
+        if let Some(guard) = st.screensaver.borrow().as_ref() {
+            guard.set_idle_after(settings::SCREENSAVER_IDLE_SECS[set.screensaver_idle]);
+        }
+    });
 
     weather::spawn(app.as_weak());
     let _frame_metrics = frame_metrics::install(&app);
-    let _screensaver = screensaver::install(&app);
+    let _screensaver = screensaver::install(&app, settings::SCREENSAVER_IDLE_SECS[st.settings.get().screensaver_idle]);
+    *st.screensaver.borrow_mut() = Some(_screensaver.clone());
     #[cfg(all(feature = "frame", target_os = "linux"))]
     let _display_power = {
         let guard: Option<Rc<display_power::Guard>> = display_power::start(&app).map(Rc::new);

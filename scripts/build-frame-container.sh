@@ -41,6 +41,8 @@ if ! docker inspect "$CONTAINER" >/dev/null 2>&1; then
     docker run -d --name "$CONTAINER" --platform linux/amd64 \
         -v "$source_dir:/src:ro" -v "$out_dir:/out" \
         debian:bookworm sleep infinity
+elif [[ $(docker inspect -f '{{.State.Running}}' "$CONTAINER") != true ]]; then
+    docker start "$CONTAINER" >/dev/null
 fi
 exec_in() { docker exec "$CONTAINER" bash -lc "$1"; }
 

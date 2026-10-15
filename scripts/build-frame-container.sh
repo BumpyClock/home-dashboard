@@ -6,14 +6,15 @@
 set -euo pipefail
 
 CONTAINER=pf-build
-MIRROR=http://hu.mirror.archlinuxarm.org/armv7h
+MIRROR=https://fl.us.mirror.archlinuxarm.org/armv7h
 source_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 out_dir=${PF_OUT_DIR:-$HOME/.cache/pf-build-out}
 mkdir -p "$out_dir"
 out_dir=$(cd -- "$out_dir" && pwd)
 
 # Must match the frame's installed packages (pacman -Q over serial);
-# epoch is stripped, the mirror URL-encodes '+' and ':' in filenames.
+# epoch is stripped. Each package is checked against the SHA256 in the repo
+# database (scripts/resolve-alarm-packages.py), fetched over HTTPS.
 # Last verified against the frame: 2026-10-14 (glibc 2.43, mesa 1:26.2.4).
 PKGS=(
   "glibc 2.43+r22+g8362e8ce10b2-2"
@@ -50,43 +51,21 @@ exec_in "curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal >/dev/nu
 exec_in "source ~/.cargo/env && rustup target add armv7-unknown-linux-gnueabihf"
 exec_in "source ~/.cargo/env && cd /src && cargo fetch --locked --target armv7-unknown-linux-gnueabihf"
 
+printf '%s\n' "${PKGS[@]}" > /tmp/pf-pins.txt
+docker cp /tmp/pf-pins.txt "$CONTAINER":/tmp/pf-pins.txt >/dev/null
+
 cat > /tmp/pf-inner.sh <<INNER
 set -euo pipefail
 MIRROR='$MIRROR'
-PKGS=(
-INNER
-for entry in "${PKGS[@]}"; do printf '  "%s"\n' "$entry" >> /tmp/pf-inner.sh; done
-cat >> /tmp/pf-inner.sh <<INNER
-)
 mkdir -p /sysroot /sysrootpkgs
-curl -sS --retry 5 --retry-delay 2 -m 60 "$MIRROR/core/" -o /idx-core.html
-curl -sS --retry 5 --retry-delay 2 -m 60 "$MIRROR/extra/" -o /idx-extra.html
-grep -ohE 'href="[^"]+\.pkg\.tar\.(xz|zst)"' /idx-core.html | sed 's/^href="//; s/"\$//' | sort -u > /pkglist-core.txt
-grep -ohE 'href="[^"]+\.pkg\.tar\.(xz|zst)"' /idx-extra.html | sed 's/^href="//; s/"\$//' | sort -u > /pkglist-extra.txt
-for entry in "\${PKGS[@]}"; do
-    p=\${entry%% *}; v=\${entry#* }
-    venc=\$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "\$v")
-    repo=""
-    fname=\$(grep -Fi "\${p}-\${venc}-" /pkglist-core.txt | head -1 || true)
-    [[ -n \$fname ]] && repo=core
-    if [[ -z \$fname ]]; then
-        fname=\$(grep -Fi "\${p}-\${venc}-" /pkglist-extra.txt | head -1 || true)
-        [[ -n \$fname ]] && repo=extra
-    fi
-    if [[ -z \$fname ]]; then
-        echo "NOTE: exact \$p-\$v not on mirror, using latest" >&2
-        fname=\$(grep -E "^\${p}-[0-9]" /pkglist-core.txt | sort -V | tail -1 || true)
-        [[ -n \$fname ]] && repo=core
-        if [[ -z \$fname ]]; then
-            fname=\$(grep -E "^\${p}-[0-9]" /pkglist-extra.txt | sort -V | tail -1 || true)
-            [[ -n \$fname ]] && repo=extra
-        fi
-    fi
-    [[ -n \$fname ]] || { echo "MISSING PACKAGE: \$p" >&2; exit 1; }
+python3 /src/scripts/resolve-alarm-packages.py "\$MIRROR" < /tmp/pf-pins.txt > /tmp/pf-resolved.txt
+while IFS=\$'\t' read -r repo fname sha; do
     echo "  \$repo/\$fname"
-    curl -sS --retry 5 --retry-delay 2 -m 300 --fail -o "/sysrootpkgs/\$fname" "\$MIRROR/\$repo/\$fname"
+    url_name=\$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "\$fname")
+    curl -sS --proto '=https' --retry 5 --retry-delay 2 -m 300 --fail -o "/sysrootpkgs/\$fname" "\$MIRROR/\$repo/\$url_name"
+    echo "\$sha  /sysrootpkgs/\$fname" | sha256sum -c --quiet - || { echo "CHECKSUM MISMATCH: \$fname" >&2; exit 1; }
     tar -C /sysroot -xf "/sysrootpkgs/\$fname"
-done
+done < /tmp/pf-resolved.txt
 for f in usr/lib/Scrt1.o usr/lib/crti.o usr/lib/crtn.o usr/lib/pkgconfig/libinput.pc usr/lib/pkgconfig/gbm.pc; do
     test -f "/sysroot/\$f" || { echo "MISSING SYSROOT FILE: \$f" >&2; exit 1; }
 done

@@ -47,17 +47,20 @@ ARM hard-float cross GCC + Rust, downloads an Arch Linux ARM armv7h
 sysroot, and runs `scripts/build-frame.sh` inside it. The binary lands in
 `~/.cache/pf-build-out/photoframe_proto` (override with `PF_OUT_DIR`).
 
-The sysroot is built from the mirror at `hu.mirror.archlinuxarm.org` using
+The sysroot is built over HTTPS from `fl.us.mirror.archlinuxarm.org` using
 the package versions pinned in the script's `PKGS` array. These must match
 the frame's installed packages — check with
 `frame-console.py shell "pacman -Q glibc mesa libinput ..."` after
 upgrading the frame, and confirm the sysroot's glibc max symbol
 (printed by the build) does not exceed the frame's glibc.
 
-Mirror quirks that have bitten: packages live under `armv7h/core/` and
-`armv7h/extra/` (not the root), filenames URL-encode `+` as `%2b` and `:`
-as `%3a`, the mirror is HTTP-only from some networks, and `curl` needs
-`--fail` or a 404 page gets written where a package should be.
+Every package is checked against the SHA256 in the mirror's repo database
+(`scripts/resolve-alarm-packages.py`) before it is unpacked; a mismatch stops
+the build. The database is unsigned, so this protects the transfer but still
+trusts the mirror. If a pinned version is no longer in the database, the
+script prints a `NOTE` and uses the mirror's current version. Packages live
+under `armv7h/core/` and `armv7h/extra/`, and filenames URL-encode `+` and
+`:`. Some mirrors (including `hu.`) do not answer HTTPS.
 
 ## Deploy
 

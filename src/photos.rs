@@ -294,6 +294,13 @@ pub fn init(app: &AppWindow) {
         {
             return;
         }
+        if store().is_none() {
+            SHARED.lock().unwrap().warm.next = PLAYLIST.get().map_or(0, Vec::len);
+        }
+        for _ in 1..decode_threads() {
+            let weak = weak.clone();
+            std::thread::spawn(move || work(weak));
+        }
         work(weak);
     });
 }
@@ -658,10 +665,41 @@ enum CardBatch {
     Settled,
 }
 
+/// Idle thumbnail pass shared by all workers: photos not yet handed out, photos handed back
+/// because display work preempted them, and how many are stored.
+struct Warm {
+    next: usize,
+    retry: Vec<usize>,
+    done: usize,
+}
+
+impl Warm {
+    const fn new() -> Self {
+        Self {
+            next: 0,
+            retry: Vec::new(),
+            done: 0,
+        }
+    }
+
+    fn claim(&mut self, count: usize) -> Option<usize> {
+        self.retry.pop().or_else(|| {
+            let index = self.next;
+            (index < count).then(|| {
+                self.next += 1;
+                index
+            })
+        })
+    }
+}
+
 struct Shared {
     want: Want,
     have: BTreeMap<(usize, Kind), HaveSlot>,
     card_batch: CardBatch,
+    // Photo indexes a worker is rendering or publishing. A claimed index is never offered again.
+    in_flight: Vec<usize>,
+    warm: Warm,
 }
 
 type Buffer = SharedPixelBuffer<Rgb8Pixel>;
@@ -687,6 +725,8 @@ impl Shared {
             },
             have: BTreeMap::new(),
             card_batch: CardBatch::Settled,
+            in_flight: Vec::new(),
+            warm: Warm::new(),
         }
     }
 
@@ -714,14 +754,17 @@ impl Shared {
             .iter()
             .filter(|&&(i, k, spec)| !self.filled(i, k, spec))
             .collect();
-        let job = missing.first().map(|&&(index, ..)| Job {
-            index,
-            specs: missing
-                .iter()
-                .filter(|s| s.0 == index)
-                .map(|&&(_, k, spec)| (k, spec))
-                .collect(),
-        });
+        let job = missing
+            .iter()
+            .find(|s| !self.in_flight.contains(&s.0))
+            .map(|&&(index, ..)| Job {
+                index,
+                specs: missing
+                    .iter()
+                    .filter(|s| s.0 == index)
+                    .map(|&&(_, k, spec)| (k, spec))
+                    .collect(),
+            });
         let card_missing = missing.iter().any(|s| s.1 == Kind::Card);
         let card_done = if self.card_batch == CardBatch::Open && !card_missing {
             self.want.card
@@ -736,13 +779,40 @@ impl Shared {
     }
 }
 
+impl Shared {
+    /// Picks the next step and takes its job's photo and a finished card batch, so no other
+    /// worker repeats them. Every job needs a matching `release`.
+    fn claim(&mut self, count: usize) -> Step {
+        let step = self.step(count);
+        if let Some(job) = &step.job {
+            self.in_flight.push(job.index);
+        }
+        if step.card_done.is_some() {
+            self.card_batch = CardBatch::Settled;
+        }
+        step
+    }
+
+    fn release(&mut self, index: usize) {
+        self.in_flight.retain(|&claimed| claimed != index);
+    }
+}
+
+fn threads_from(value: Option<&str>) -> usize {
+    value.and_then(|v| v.parse().ok()).unwrap_or(2).clamp(1, 3)
+}
+
+fn decode_threads() -> usize {
+    threads_from(std::env::var("FRAME_DECODE_THREADS").ok().as_deref())
+}
+
 static SHARED: Mutex<Shared> = Mutex::new(Shared::new());
 static DEMAND_CHANGED: Condvar = Condvar::new();
 static LOAD_STATE: Mutex<PhotoLoadState> = Mutex::new(PhotoLoadState::new());
 
 fn update(change: impl FnOnce(&mut Shared) -> bool) {
     if change(&mut SHARED.lock().unwrap()) {
-        DEMAND_CHANGED.notify_one();
+        DEMAND_CHANGED.notify_all();
     }
 }
 
@@ -942,33 +1012,42 @@ fn work(weak: slint::Weak<AppWindow>) {
     let playlist = PLAYLIST.get().map_or(&[][..], Vec::as_slice);
     // While no demand is pending, store a thumbnail for every photo, one per pass, so
     // demand is re-checked between decodes. This runs once per new or changed photo.
-    let mut warm = if store().is_some() { 0 } else { playlist.len() };
     loop {
-        let step = {
+        let claimed = {
             let mut shared = SHARED.lock().unwrap();
             loop {
-                let step = shared.step(playlist.len());
+                let step = shared.claim(playlist.len());
                 if step.job.is_some() || !step.evict.is_empty() || step.card_done.is_some() {
-                    break Some(step);
+                    break Ok(step);
                 }
-                if warm < playlist.len() {
-                    break None;
+                if let Some(index) = shared.warm.claim(playlist.len()) {
+                    break Err(index);
                 }
                 shared = DEMAND_CHANGED.wait(shared).unwrap();
             }
         };
-        let Some(step) = step else {
-            if let Some(store) = store() {
+        let step = match claimed {
+            Ok(step) => step,
+            Err(index) => {
+                let Some(store) = store() else { continue };
                 let urgent = || SHARED.lock().unwrap().step(playlist.len()).job.is_some();
-                if warm_stored(store, &playlist[warm].path, urgent) {
-                    warm += 1;
+                let stored = warm_stored(store, &playlist[index].path, urgent);
+                let mut shared = SHARED.lock().unwrap();
+                if !stored {
+                    shared.warm.retry.push(index);
+                    DEMAND_CHANGED.notify_all();
+                    continue;
                 }
-                if warm == playlist.len() {
+                shared.warm.done += 1;
+                let finished = shared.warm.done == playlist.len();
+                drop(shared);
+                if finished {
                     prune_stored(store, playlist);
                 }
+                continue;
             }
-            continue;
         };
+        let claimed_index = step.job.as_ref().map(|job| job.index);
         let mut updates = Vec::new();
         if let Some(job) = &step.job {
             let outcomes = render(&playlist[job.index].path, job, |kind, spec| {
@@ -1055,6 +1134,10 @@ fn work(weak: slint::Weak<AppWindow>) {
             return;
         }
         let _ = acknowledged.recv();
+        if let Some(index) = claimed_index {
+            SHARED.lock().unwrap().release(index);
+            DEMAND_CHANGED.notify_all();
+        }
     }
 }
 
@@ -1062,8 +1145,9 @@ fn work(weak: slint::Weak<AppWindow>) {
 mod tests {
     use super::{
         composite_scrim, cover, dct_scale, decode_oriented, exif_date, fit, oriented_dimensions,
-        raster_scrim, render, scan, taken, warm_stored, window, Card, HaveSlot, Job, Kind,
-        Rendered, Shared, ThumbStore, ThumbnailCache, ThumbnailKey, Want, MAX_THUMBS, THUMB,
+        raster_scrim, render, scan, taken, threads_from, warm_stored, window, Card, CardBatch,
+        HaveSlot, Job, Kind, Rendered, Shared, ThumbStore, ThumbnailCache, ThumbnailKey, Want,
+        Warm, MAX_THUMBS, THUMB,
     };
     use image::metadata::Orientation;
     use image::{imageops, Rgb, RgbImage};
@@ -1697,6 +1781,118 @@ mod tests {
                 .count(),
             MAX_THUMBS
         );
+    }
+
+    fn fill(shared: &mut Shared, job: &Job) {
+        for &(kind, spec) in &job.specs {
+            shared.have.insert((job.index, kind), HaveSlot::Ready(spec));
+        }
+    }
+
+    fn card_want() -> Want {
+        Want {
+            card: Some(Card {
+                size: (388, 280, 180),
+                bake: true,
+                generation: 1,
+            }),
+            ..Want::default()
+        }
+    }
+
+    #[test]
+    fn parallel_claims_take_different_photos_and_never_repeat_one_in_flight() {
+        let mut shared = Shared::new();
+        shared.want = resident_want(0);
+        let first = shared.claim(66).job.unwrap();
+        let second = shared.claim(66).job.unwrap();
+        assert_ne!(first.index, second.index);
+        let mut claimed = vec![first.index, second.index];
+        while let Some(job) = shared.claim(66).job {
+            claimed.push(job.index);
+        }
+        let total = claimed.len();
+        claimed.sort_unstable();
+        claimed.dedup();
+        assert_eq!(claimed.len(), total);
+        assert_eq!([first.index, second.index], [0, 1]);
+        shared.release(first.index);
+        assert_eq!(shared.claim(66).job.unwrap().index, first.index);
+    }
+
+    #[test]
+    fn in_flight_job_can_be_cancelled_when_demand_drops_its_slot() {
+        let mut shared = Shared::new();
+        shared.want = resident_want(0);
+        let job = shared.claim(66).job.unwrap();
+        assert!(shared.accepts(job.index, Kind::Full, (800, 1280, 0), 66));
+        shared.want = resident_want(30);
+        assert!(!shared.accepts(job.index, Kind::Full, (800, 1280, 0), 66));
+        assert_eq!(shared.in_flight, [job.index]);
+        shared.release(job.index);
+        assert!(shared.in_flight.is_empty());
+    }
+
+    #[test]
+    fn card_batch_settles_once_after_every_parallel_card_job_is_published() {
+        let mut shared = Shared::new();
+        shared.want = card_want();
+        shared.card_batch = CardBatch::Open;
+        let first = shared.claim(2).job.unwrap();
+        let second = shared.claim(2).job.unwrap();
+        let idle = shared.claim(2);
+        assert!(idle.job.is_none() && idle.card_done.is_none());
+        fill(&mut shared, &first);
+        shared.release(first.index);
+        assert!(shared.claim(2).card_done.is_none());
+        fill(&mut shared, &second);
+        shared.release(second.index);
+        assert_eq!(shared.claim(2).card_done, shared.want.card);
+        assert!(shared.card_batch == CardBatch::Settled);
+        assert!(shared.claim(2).card_done.is_none());
+    }
+
+    #[test]
+    fn single_worker_claims_follow_the_unclaimed_step_order() {
+        let mut plain = Shared::new();
+        let mut claiming = Shared::new();
+        plain.want = resident_want(3);
+        claiming.want = resident_want(3);
+        loop {
+            let expected = plain.step(66).job;
+            let actual = claiming.claim(66).job;
+            assert_eq!(
+                expected.as_ref().map(|j| (j.index, j.specs.clone())),
+                actual.as_ref().map(|j| (j.index, j.specs.clone()))
+            );
+            let (Some(expected), Some(actual)) = (expected, actual) else {
+                break;
+            };
+            fill(&mut plain, &expected);
+            fill(&mut claiming, &actual);
+            claiming.release(actual.index);
+        }
+    }
+
+    #[test]
+    fn warm_pass_hands_each_photo_out_once_and_returns_preempted_ones() {
+        let mut warm = Warm::new();
+        assert_eq!(
+            [warm.claim(3), warm.claim(3), warm.claim(3), warm.claim(3)],
+            [Some(0), Some(1), Some(2), None]
+        );
+        warm.retry.push(1);
+        assert_eq!(warm.claim(3), Some(1));
+        assert_eq!(warm.claim(3), None);
+    }
+
+    #[test]
+    fn decode_thread_count_defaults_to_two_and_clamps() {
+        assert_eq!(threads_from(None), 2);
+        assert_eq!(threads_from(Some("x")), 2);
+        assert_eq!(threads_from(Some("0")), 1);
+        assert_eq!(threads_from(Some("1")), 1);
+        assert_eq!(threads_from(Some("9")), 3);
     }
 
     #[test]

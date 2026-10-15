@@ -70,15 +70,31 @@ Photos tab and during the screensaver, and grid thumbnails use their own
 128-entry, 28 MiB cache. These changes are source-supported; no frame
 capture of the Photos tab exists yet.
 
+JPEG sources decode at a reduced DCT scale (1/2, 1/4 or 1/8, via
+`jpeg-decoder`) when the rendition is much smaller than the photo. The
+scale is the smallest whose output, after EXIF rotation, still covers the
+cover-resize size, so `fit` never upscales and still resizes to the exact
+size. A job with several renditions of one photo handles the largest
+first and reuses that decode; a smaller decode is dropped before a larger
+one is needed. CMYK, 16-bit and any decoder failure fall back to the full
+`image` decode. Measured on a macOS host with a 12 MP, 5.9 MB JPEG: grid
+thumbnail and Home card 104 ms to 59 ms, full-screen 131 ms to 94 ms,
+and the decoded buffer shrinks from 36 MB to 0.56 MB (thumbnail) or 9 MB
+(full-screen). The A7 will differ; no frame measurement exists yet. Entropy
+decoding still reads the whole file, so the saving is bounded. The
+128-entry grid cache stays: a stored thumbnail loads in 0.4 ms on the host,
+but the visible window alone needs 64 entries (14 MiB), so shrinking
+would save at most 14 MiB and add reloads while scrolling back.
+
 Grid thumbnails persist on disk as 270×270 JPEGs (see `FRAME_THUMB_CACHE`),
 named by a hash of the photo's path, modification time, size, and the
-stored format. A photo is decoded at full size for its thumbnail once per
+stored format. A photo is decoded for its thumbnail once per
 version; later visits and restarts read the small file. When no display
 work is pending, the worker builds missing thumbnails one photo at a time
 and then deletes stored thumbnails for photos no longer in the playlist.
-During that one-time pass, new display demand can wait for one full-size
-decode. A first-boot `FRAME_BENCHMARK` capture is not quiescent until the
-pass finishes; check the store directory before comparing captures.
+During that one-time pass, new display demand can wait for one decode. A first-boot `FRAME_BENCHMARK` capture is
+not quiescent until the pass finishes; check the store directory before
+comparing captures.
 
 Scroll motion has no simulation timer. The offset binding samples
 closed-form exponential coast and damped spring motion from

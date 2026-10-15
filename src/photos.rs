@@ -1,4 +1,5 @@
 use image::imageops::{self, FilterType};
+use image::metadata::Orientation;
 use image::{DynamicImage, ImageDecoder, ImageReader, RgbImage, RgbaImage};
 use slint::{ComponentHandle, Model, ModelRc, Rgb8Pixel, SharedPixelBuffer, VecModel};
 use std::collections::{BTreeMap, VecDeque};
@@ -325,7 +326,7 @@ fn memory_limit() -> image::ImageError {
     ))
 }
 
-fn photo_decoder(path: &Path) -> image::ImageResult<impl ImageDecoder> {
+fn read_photo(path: &Path) -> image::ImageResult<Vec<u8>> {
     let file = std::fs::File::open(path)?;
     if file.metadata()?.len() > MAX_FILE_BYTES {
         return Err(memory_limit());
@@ -335,6 +336,10 @@ fn photo_decoder(path: &Path) -> image::ImageResult<impl ImageDecoder> {
     if bytes.len() as u64 > MAX_FILE_BYTES {
         return Err(memory_limit());
     }
+    Ok(bytes)
+}
+
+fn photo_decoder(bytes: &[u8]) -> image::ImageResult<impl ImageDecoder + '_> {
     let mut limits = image::Limits::default();
     limits.max_alloc = Some(MAX_SOURCE_BYTES);
     limits.max_image_width = Some(16384);
@@ -351,12 +356,92 @@ fn photo_decoder(path: &Path) -> image::ImageResult<impl ImageDecoder> {
     Ok(decoder)
 }
 
-fn decode_oriented(path: &Path) -> image::ImageResult<RgbImage> {
-    let mut decoder = photo_decoder(path)?;
+/// Output length of a JPEG axis decoded at `idct`/8 scale.
+fn scaled_len(len: u32, idct: u32) -> u32 {
+    (len * idct).div_ceil(8)
+}
+
+/// The smallest DCT scale (in eighths) whose output still covers `target` the way `fit`
+/// does. 8 means a full decode, which is also the answer whenever `fit` would not shrink.
+fn dct_scale(oriented: (u32, u32), target: (u32, u32)) -> u32 {
+    let (w, h) = oriented;
+    let scale = (target.0 as f32 / w as f32).max(target.1 as f32 / h as f32);
+    if scale >= 1.0 {
+        return 8;
+    }
+    let (cover_w, cover_h) = (
+        (w as f32 * scale).ceil() as u32,
+        (h as f32 * scale).ceil() as u32,
+    );
+    [1, 2, 4]
+        .into_iter()
+        .find(|&idct| scaled_len(w, idct) >= cover_w && scaled_len(h, idct) >= cover_h)
+        .unwrap_or(8)
+}
+
+fn oriented_dimensions((w, h): (u32, u32), orientation: Orientation) -> (u32, u32) {
+    match orientation {
+        Orientation::Rotate90
+        | Orientation::Rotate270
+        | Orientation::Rotate90FlipH
+        | Orientation::Rotate270FlipH => (h, w),
+        _ => (w, h),
+    }
+}
+
+/// `None` when jpeg-decoder cannot produce RGB at this scale; the caller decodes in full.
+fn decode_scaled(bytes: &[u8], (w, h): (u32, u32), idct: u32) -> Option<RgbImage> {
+    let (sw, sh) = (scaled_len(w, idct), scaled_len(h, idct));
+    let mut decoder = jpeg_decoder::Decoder::new(Cursor::new(bytes));
+    decoder.set_max_decoding_buffer_size(MAX_SOURCE_BYTES as usize);
+    let size = decoder
+        .scale(u16::try_from(sw).ok()?, u16::try_from(sh).ok()?)
+        .ok()?;
+    if u32::from(size.0) != sw || u32::from(size.1) != sh {
+        return None;
+    }
+    let pixels = decoder.decode().ok()?;
+    let rgb = match decoder.info()?.pixel_format {
+        jpeg_decoder::PixelFormat::RGB24 => pixels,
+        jpeg_decoder::PixelFormat::L8 => pixels.into_iter().flat_map(|l| [l; 3]).collect(),
+        _ => return None,
+    };
+    RgbImage::from_raw(sw, sh, rgb)
+}
+
+struct Decoded {
+    image: RgbImage,
+    oriented: (u32, u32),
+    idct: u32,
+}
+
+impl Decoded {
+    fn covers(&self, target: (u32, u32)) -> bool {
+        self.idct >= dct_scale(self.oriented, target)
+    }
+}
+
+/// Decodes at the smallest DCT scale that still covers `target` after orientation.
+fn decode_oriented(path: &Path, target: (u32, u32)) -> image::ImageResult<Decoded> {
+    let bytes = read_photo(path)?;
+    let mut decoder = photo_decoder(&bytes)?;
     let orientation = decoder.orientation()?;
-    let mut image = DynamicImage::from_decoder(decoder)?;
+    let source = decoder.dimensions();
+    let oriented = oriented_dimensions(source, orientation);
+    let idct = dct_scale(oriented, target);
+    let scaled = (idct < 8)
+        .then(|| decode_scaled(&bytes, source, idct))
+        .flatten();
+    let (mut image, idct) = match scaled {
+        Some(rgb) => (DynamicImage::ImageRgb8(rgb), idct),
+        None => (DynamicImage::from_decoder(decoder)?, 8),
+    };
     image.apply_orientation(orientation);
-    Ok(image.into_rgb8())
+    Ok(Decoded {
+        image: image.into_rgb8(),
+        oriented,
+        idct,
+    })
 }
 
 #[cfg(test)]
@@ -369,10 +454,10 @@ fn cover(
     if w == 0 || h == 0 || !current() {
         return None;
     }
-    let img = decode_oriented(path)
+    let decoded = decode_oriented(path, (w, h))
         .map_err(|e| eprintln!("[photos] {}: {e}", path.display()))
         .ok()?;
-    fit(&img, w, h, current)
+    fit(&decoded.image, w, h, current)
 }
 
 fn fit(
@@ -719,6 +804,29 @@ pub fn demand(app: &AppWindow) {
     });
 }
 
+/// Reuses `slot` when it already covers `target`; otherwise frees it before decoding again
+/// so two full-size buffers never coexist. A failed decode is remembered for the job.
+fn decode_for<'a>(
+    slot: &'a mut Option<Option<Decoded>>,
+    path: &Path,
+    target: (u32, u32),
+) -> Option<&'a RgbImage> {
+    let reusable = match slot {
+        Some(Some(decoded)) => decoded.covers(target),
+        Some(None) => true,
+        None => false,
+    };
+    if !reusable {
+        *slot = None;
+        *slot = Some(
+            decode_oriented(path, target)
+                .map_err(|e| eprintln!("[photos] {}: {e}", path.display()))
+                .ok(),
+        );
+    }
+    slot.as_ref()?.as_ref().map(|decoded| &decoded.image)
+}
+
 fn render(
     path: &Path,
     job: &Job,
@@ -726,7 +834,10 @@ fn render(
 ) -> Vec<(Kind, PhotoSize, Rendered)> {
     let mut decoded = None;
     let mut out = Vec::new();
-    for &(kind, spec @ (w, h, scrim)) in &job.specs {
+    // Largest first, so one decode serves every rendition of the photo.
+    let mut specs: Vec<_> = job.specs.iter().collect();
+    specs.sort_by_key(|(_, (w, h, _))| std::cmp::Reverse(u64::from(*w) * u64::from(*h)));
+    for &(kind, spec @ (w, h, scrim)) in specs {
         if !wanted(kind, spec) {
             continue;
         }
@@ -751,13 +862,7 @@ fn render(
             });
         let rendered = cached
             .or_else(|| {
-                let image = decoded
-                    .get_or_insert_with(|| {
-                        decode_oriented(path)
-                            .map_err(|e| eprintln!("[photos] {}: {e}", path.display()))
-                            .ok()
-                    })
-                    .as_ref()?;
+                let image = decode_for(&mut decoded, path, (w, h))?;
                 // After the full decode, a thumbnail is worth finishing and storing even if
                 // its tile scrolled away; the cost is already paid.
                 let mut buf = fit(image, w, h, || kind == Kind::Thumb || wanted(kind, spec))?;
@@ -809,12 +914,12 @@ fn warm_stored(store: &ThumbStore, path: &Path, urgent: impl Fn() -> bool) -> bo
     if store.contains(&name) {
         return true;
     }
-    let Ok(image) =
-        decode_oriented(path).map_err(|e| eprintln!("[photos] {}: {e}", path.display()))
+    let Ok(decoded) = decode_oriented(path, (THUMB, THUMB))
+        .map_err(|e| eprintln!("[photos] {}: {e}", path.display()))
     else {
         return true;
     };
-    let Some(buf) = fit(&image, THUMB, THUMB, || !urgent()) else {
+    let Some(buf) = fit(&decoded.image, THUMB, THUMB, || !urgent()) else {
         return !urgent();
     };
     if urgent() {
@@ -956,10 +1061,11 @@ fn work(weak: slint::Weak<AppWindow>) {
 #[cfg(test)]
 mod tests {
     use super::{
-        composite_scrim, cover, decode_oriented, exif_date, fit, raster_scrim, scan, taken,
-        warm_stored, window, Card, HaveSlot, Kind, Shared, ThumbStore, ThumbnailCache,
-        ThumbnailKey, Want, MAX_THUMBS, THUMB,
+        composite_scrim, cover, dct_scale, decode_oriented, exif_date, fit, oriented_dimensions,
+        raster_scrim, render, scan, taken, warm_stored, window, Card, HaveSlot, Job, Kind,
+        Rendered, Shared, ThumbStore, ThumbnailCache, ThumbnailKey, Want, MAX_THUMBS, THUMB,
     };
+    use image::metadata::Orientation;
     use image::{imageops, Rgb, RgbImage};
     use slint::{Rgb8Pixel, SharedPixelBuffer};
     use std::io::Write;
@@ -1002,49 +1108,214 @@ mod tests {
         }
     }
 
+    fn full_decode(path: &std::path::Path) -> RgbImage {
+        decode_oriented(path, (u32::MAX / 2, u32::MAX / 2))
+            .unwrap()
+            .image
+    }
+
+    fn with_orientation(jpeg: &[u8], orientation: u8) -> Vec<u8> {
+        let mut exif = b"Exif\0\0".to_vec();
+        exif.extend_from_slice(&[
+            b'I',
+            b'I',
+            42,
+            0,
+            8,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0x12,
+            1,
+            3,
+            0,
+            1,
+            0,
+            0,
+            0,
+            orientation,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        ]);
+        let mut tagged = jpeg[..2].to_vec();
+        tagged.extend_from_slice(&[0xff, 0xe1]);
+        tagged.extend_from_slice(&((exif.len() + 2) as u16).to_be_bytes());
+        tagged.extend_from_slice(&exif);
+        tagged.extend_from_slice(&jpeg[2..]);
+        tagged
+    }
+
+    fn large_jpeg(dir: &std::path::Path, name: &str, w: u32, h: u32) -> PathBuf {
+        let image = RgbImage::from_fn(w, h, |x, y| {
+            let (fx, fy) = (x as f32 / w as f32, y as f32 / h as f32);
+            Rgb([
+                (127.0 + 120.0 * (fx * 9.0).sin()) as u8,
+                (127.0 + 120.0 * (fy * 7.0 + fx * 3.0).cos()) as u8,
+                (fx * 255.0) as u8,
+            ])
+        });
+        let path = dir.join(name);
+        image::codecs::jpeg::JpegEncoder::new_with_quality(
+            std::fs::File::create(&path).unwrap(),
+            92,
+        )
+        .encode_image(&image)
+        .unwrap();
+        path
+    }
+
+    fn mean_abs_error(a: &[u8], b: &[u8]) -> f64 {
+        assert_eq!(a.len(), b.len());
+        a.iter()
+            .zip(b)
+            .map(|(&a, &b)| f64::from(a.abs_diff(b)))
+            .sum::<f64>()
+            / a.len() as f64
+    }
+
+    #[test]
+    fn dct_scale_picks_the_smallest_scale_that_still_covers_the_target() {
+        assert_eq!(dct_scale((4000, 3000), (270, 270)), 1);
+        assert_eq!(dct_scale((4000, 3000), (388, 280)), 1);
+        assert_eq!(dct_scale((4000, 3000), (800, 1280)), 4);
+        assert_eq!(dct_scale((4000, 3000), (1280, 800)), 4);
+        assert_eq!(dct_scale((4000, 3000), (2100, 1500)), 8);
+        assert_eq!(dct_scale((4000, 3000), (4000, 3000)), 8);
+        assert_eq!(dct_scale((640, 480), (800, 1280)), 8);
+        assert_eq!(dct_scale((8000, 6000), (100, 100)), 1);
+        assert_eq!(dct_scale((10000, 100), (800, 1280)), 8);
+    }
+
+    #[test]
+    fn dct_scale_output_is_never_smaller_than_the_cover_size() {
+        for (w, h) in [
+            (4000, 3000),
+            (3000, 4000),
+            (5472, 3648),
+            (1999, 1001),
+            (4001, 17),
+        ] {
+            for target in [(270, 270), (388, 280), (800, 1280), (1280, 800), (33, 700)] {
+                let idct = dct_scale((w, h), target);
+                let scale = (target.0 as f32 / w as f32).max(target.1 as f32 / h as f32);
+                let covered = |len: u32, out: u32| out >= (len as f32 * scale).ceil() as u32;
+                let out = |len: u32| (len * idct).div_ceil(8);
+                assert!(
+                    scale >= 1.0 || (covered(w, out(w)) && covered(h, out(h))),
+                    "{w}x{h} -> {target:?} at {idct}/8"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn quarter_turn_orientations_swap_the_dimensions_used_for_the_scale() {
+        let source = (4000, 3000);
+        for orientation in [Orientation::Rotate90, Orientation::Rotate270FlipH] {
+            let oriented = oriented_dimensions(source, orientation);
+            assert_eq!(oriented, (3000, 4000));
+            assert_eq!(dct_scale(oriented, (800, 1280)), 4);
+            assert_eq!(dct_scale(source, (800, 1280)), 4);
+            assert_eq!(dct_scale(oriented, (200, 1000)), 2);
+            assert_eq!(dct_scale(source, (200, 1000)), 4);
+        }
+        assert_eq!(oriented_dimensions(source, Orientation::Rotate180), source);
+        assert_eq!(
+            oriented_dimensions(source, Orientation::FlipHorizontal),
+            source
+        );
+    }
+
+    #[test]
+    fn scaled_decode_matches_the_full_decode_path() {
+        let fixture = PhotoFixture::new();
+        let path = large_jpeg(&fixture.0, "large.jpg", 1600, 1000);
+        let jpeg = std::fs::read(&path).unwrap();
+        let rotated = fixture.0.join("rotated.jpg");
+        std::fs::write(&rotated, with_orientation(&jpeg, 6)).unwrap();
+        for (path, sizes) in [
+            (&path, [(270, 270), (388, 280), (640, 400)]),
+            (&rotated, [(270, 270), (388, 280), (400, 640)]),
+        ] {
+            let full = full_decode(path);
+            for (w, h) in sizes {
+                let scaled = decode_oriented(path, (w, h)).unwrap();
+                assert!(scaled.idct < 8, "{w}x{h} should decode scaled");
+                assert!(scaled.image.width() < full.width());
+                let expected = fit(&full, w, h, || true).unwrap();
+                let actual = fit(&scaled.image, w, h, || true).unwrap();
+                assert_eq!(actual.width(), expected.width());
+                assert_eq!(actual.height(), expected.height());
+                let error = mean_abs_error(actual.as_bytes(), expected.as_bytes());
+                assert!(error < 2.0, "{w}x{h}: mean abs error {error}");
+            }
+        }
+    }
+
+    #[test]
+    fn grayscale_jpeg_decodes_scaled_as_rgb() {
+        let fixture = PhotoFixture::new();
+        let path = fixture.0.join("gray.jpg");
+        let gray =
+            image::GrayImage::from_fn(1600, 1200, |x, y| image::Luma([((x + y) / 13) as u8]));
+        image::codecs::jpeg::JpegEncoder::new_with_quality(
+            std::fs::File::create(&path).unwrap(),
+            92,
+        )
+        .encode_image(&gray)
+        .unwrap();
+        let scaled = decode_oriented(&path, (200, 200)).unwrap();
+        assert!(scaled.idct < 8);
+        let full = full_decode(&path);
+        assert_eq!(full.dimensions(), (1600, 1200));
+        let (sw, sh) = scaled.image.dimensions();
+        let mid = scaled.image.get_pixel(sw / 2, sh / 2);
+        let reference = full.get_pixel(1600 / 2, 1200 / 2);
+        assert_eq!(mid[0], mid[1]);
+        assert!(mid[0].abs_diff(reference[0]) < 6);
+    }
+
+    #[test]
+    fn render_produces_every_rendition_from_one_large_photo() {
+        let fixture = PhotoFixture::new();
+        let path = large_jpeg(&fixture.0, "large.jpg", 1600, 1000);
+        let full = full_decode(&path);
+        let specs = vec![
+            (Kind::Thumb, (THUMB, THUMB, 0)),
+            (Kind::Card, (388, 280, 0)),
+            (Kind::Full, (800, 1280, 0)),
+        ];
+        let job = Job { index: 0, specs };
+        let out = render(&path, &job, |_, _| true);
+        assert_eq!(out.len(), 3);
+        for (_, (w, h, _), rendered) in out {
+            let Rendered::Ready(buffer) = rendered else {
+                panic!("rendition failed");
+            };
+            assert_eq!((buffer.width(), buffer.height()), (w, h));
+            let expected = fit(&full, w, h, || true).unwrap();
+            let error = mean_abs_error(buffer.as_bytes(), expected.as_bytes());
+            assert!(error < 2.0, "{w}x{h}: mean abs error {error}");
+        }
+    }
+
     #[test]
     fn jpeg_exif_rotation_and_mirroring_are_applied_before_cover() {
         let fixture = PhotoFixture::new();
-        let original = decode_oriented(&fixture.photo()).unwrap();
+        let original = full_decode(&fixture.photo());
         let jpeg = std::fs::read(fixture.photo()).unwrap();
         for orientation in [2u8, 6] {
-            let mut exif = b"Exif\0\0".to_vec();
-            exif.extend_from_slice(&[
-                b'I',
-                b'I',
-                42,
-                0,
-                8,
-                0,
-                0,
-                0,
-                1,
-                0,
-                0x12,
-                1,
-                3,
-                0,
-                1,
-                0,
-                0,
-                0,
-                orientation,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-            ]);
-            let mut tagged = jpeg[..2].to_vec();
-            tagged.extend_from_slice(&[0xff, 0xe1]);
-            tagged.extend_from_slice(&((exif.len() + 2) as u16).to_be_bytes());
-            tagged.extend_from_slice(&exif);
-            tagged.extend_from_slice(&jpeg[2..]);
+            let tagged = with_orientation(&jpeg, orientation);
             let path = fixture.0.join(format!("orientation-{orientation}.jpg"));
             std::fs::write(&path, tagged).unwrap();
-            let image = decode_oriented(&path).unwrap();
+            let image = full_decode(&path);
             assert_eq!(
                 image.dimensions(),
                 if orientation == 6 { (32, 48) } else { (48, 32) }
@@ -1065,7 +1336,7 @@ mod tests {
     #[test]
     fn cover_keeps_original_center_crop_pixels_at_exact_target_sizes() {
         let fixture = PhotoFixture::new();
-        let image = decode_oriented(&fixture.photo()).unwrap();
+        let image = full_decode(&fixture.photo());
         for (w, h) in [(48, 32), (24, 24), (14, 42), (47, 30)] {
             let scale = (w as f32 / image.width() as f32).max(h as f32 / image.height() as f32);
             let scaled = imageops::resize(

@@ -44,7 +44,14 @@ translates cached Agenda rows and Settings headings/card bodies through their
 viewport clips. Changes to cached text, colors, or preview geometry
 invalidate the affected region.
 
-Photo decode runs on a worker thread. Completed batches are reused at the
+Photo decode runs on up to `FRAME_DECODE_THREADS` worker threads (default 2,
+1 to 3). A worker claims the most urgent photo that no other worker has in
+flight, renders all its renditions, and publishes them as soon as they are
+done, so an urgent photo never waits for a slower one. A card batch is done
+only when no card slot is missing or in flight. Each job holds at most about
+18 MB transiently (file bytes, one reduced decode, fit buffers), so peak
+extra memory is that times the thread count. `FRAME_DECODE_THREADS=1` keeps
+the single-worker order. Completed batches are reused at the
 same size; interrupted batches can reload. The decode size is the ceiling
 of the card's physical pixel dimensions, and completed image geometry
 uses unit physical scaling. At most two images draw during a transition.
@@ -90,9 +97,12 @@ Grid thumbnails persist on disk as 270×270 JPEGs (see `FRAME_THUMB_CACHE`),
 named by a hash of the photo's path, modification time, size, and the
 stored format. A photo is decoded for its thumbnail once per
 version; later visits and restarts read the small file. When no display
-work is pending, the worker builds missing thumbnails one photo at a time
-and then deletes stored thumbnails for photos no longer in the playlist.
-During that one-time pass, new display demand can wait for one decode. A first-boot `FRAME_BENCHMARK` capture is
+work is pending, the workers build missing thumbnails, each one photo at a time,
+and the last one to finish deletes stored thumbnails for photos no longer
+in the playlist. During that one-time pass, new display demand can wait for
+one decode. Measured on a macOS host, 60 photos of 4000x3000 (12 MP) into an
+empty store: 4.1 s with 1 thread, 2.2 s with 2, 1.8 s with 3 (two runs
+each, including app start). The A7 will differ; no frame measurement exists yet. A first-boot `FRAME_BENCHMARK` capture is
 not quiescent until the pass finishes; check the store directory before
 comparing captures.
 

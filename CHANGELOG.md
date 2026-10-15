@@ -7,3 +7,4 @@
 - Photos tab uses the theme's page background and text colors instead of a fixed dark backdrop.
 - Screensaver (portrait): the clock sits at the bottom left, with weather and the next event on the same row at the right edge, matching landscape.
 - Added macOS cross-build container and USB serial deploy runbook (`docs/serial-deploy.md`, `scripts/build-frame-container.sh`, `scripts/frame-console.py`). The sysroot packages are fetched over HTTPS and checked against the repo database SHA256 before use. Frame console credentials live in gitignored `.claude/frame-credentials.json`, never in the repo.
+- Photos: decoding uses two threads by default (`FRAME_DECODE_THREADS`, 1 to 3), so the first Photos grid visit and the idle thumbnail pass finish sooner; a macOS host builds 60 stored thumbnails in about half the time.

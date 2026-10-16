@@ -87,7 +87,7 @@ one is needed. CMYK, 16-bit and any decoder failure fall back to the full
 `image` decode. Measured on a macOS host with a 12 MP, 5.9 MB JPEG: grid
 thumbnail and Home card 104 ms to 59 ms, full-screen 131 ms to 94 ms,
 and the decoded buffer shrinks from 36 MB to 0.56 MB (thumbnail) or 9 MB
-(full-screen). The A7 will differ; no frame measurement exists yet. Entropy
+(full-screen). See the frame measurement below. Entropy
 decoding still reads the whole file, so the saving is bounded. The
 128-entry grid cache stays: a stored thumbnail loads in 0.4 ms on the host,
 but the visible window alone needs 64 entries (14 MiB), so shrinking
@@ -102,7 +102,25 @@ and the last one to finish deletes stored thumbnails for photos no longer
 in the playlist. During that one-time pass, new display demand can wait for
 one decode. Measured on a macOS host, 60 photos of 4000x3000 (12 MP) into an
 empty store: 4.1 s with 1 thread, 2.2 s with 2, 1.8 s with 3 (two runs
-each, including app start). The A7 will differ; no frame measurement exists yet. A first-boot `FRAME_BENCHMARK` capture is
+each, including app start).
+
+Measured on the frame (2026-10-15, release `879bd8b1` against the previous
+`9847c4e1`): 66 photos (103 MB) into an empty store, page cache dropped,
+timed from service start until all 66 thumbnails were stored. SoC
+temperature stayed between 44 and 48 °C.
+
+| Build | Threads | Seconds | Process CPU seconds | Peak RSS |
+|---|---|---|---|---|
+| `9847c4e1` (full-size decode) | 1 | 99.1 | 91.9 | 83 MiB |
+| `879bd8b1` | 1 | 41.6 | 36.0 | 62 MiB |
+| `879bd8b1` | 2 | 25.3, 24.7 | 37.7 | 67–68 MiB |
+| `879bd8b1` | 3 | 20.2 | 39.0 | 72 MiB |
+
+The reduced-scale decode alone cuts the pass by 58% and CPU time by 61%;
+two threads cut the remaining time by 40%. Three threads save 5 s more but
+leave the UI thread one free core, so the default stays at 2. Scrolling and
+the first Photos visit were not captured: the frame has no `uinput`, so
+touch input cannot be scripted. A first-boot `FRAME_BENCHMARK` capture is
 not quiescent until the pass finishes; check the store directory before
 comparing captures.
 

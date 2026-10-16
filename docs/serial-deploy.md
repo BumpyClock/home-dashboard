@@ -17,13 +17,18 @@ through the frame's USB serial console (`ttyGS0`, exposed as
   `pkexec --disable-internal-agent /usr/local/sbin/pf-maintenance shell -c '<cmd>'`.
 - SSH is disabled; the frame's WiFi (10.149.100.0/24) is not reachable
   from the Mac, so serial is the only channel.
+- `root` returns after about 60 s. Run longer jobs detached
+  (`setsid -f sh -c '...' </dev/null >/dev/null 2>&1`) and read their
+  output later as root: files written under `pf-maintenance` are not
+  readable by `diag`.
 - Only one process can hold the port. `screen /dev/cu.usbmodem*` left
   attached blocks scripted access — close it first.
 
 ## Tooling
 
-`scripts/frame-console.py` (needs `pip install pyserial`) drives the
-console:
+`scripts/frame-console.py` (needs `pyserial`: `pip install pyserial`, or
+run it as `uv run --with pyserial python3 scripts/frame-console.py ...`)
+drives the console:
 
 ```sh
 python3 scripts/frame-console.py shell "uname -a"          # as diag

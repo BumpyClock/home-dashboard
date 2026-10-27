@@ -1,0 +1,11 @@
+[package]
+name = "texture-prewarm"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+renderer = []
+
+[dependencies]
+frame-trace = { path = "../../instrumentation/frame-trace" }
+i-slint-core = { version = "=1.18.1", default-features = false, features = ["std"] }

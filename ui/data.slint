@@ -52,6 +52,8 @@ export global Frame {
     in-out property <float> photo-card-height;
     in-out property <float> photo-scrim-height;
     callback photo-size-changed(length, length, length);
+    callback trace-photo-stage(int, int, int, int, int, bool);
+    callback trace-grid(int, int, int, int, int, bool);
 
     in property <string> weather-line: "Bengaluru · H 27° L 19°";
     in property <string> temp: "23°";

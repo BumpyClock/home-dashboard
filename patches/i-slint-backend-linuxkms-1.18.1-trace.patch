@@ -1,0 +1,253 @@
+--- a/renderer/femtovg.rs
++++ b/renderer/femtovg.rs
+@@ -11,7 +11,7 @@
+ 
+ use glutin::{
+     context::{ContextApi, ContextAttributesBuilder},
+-    display::GetGlDisplay,
++    display::{AsRawDisplay, GetDisplayExtensions, GetGlDisplay, RawDisplay},
+     prelude::*,
+     surface::{SurfaceAttributesBuilder, WindowSurface},
+ };
+@@ -30,6 +30,115 @@
+     glutin_context: glutin::context::PossiblyCurrentContext,
+     glutin_surface: glutin::surface::Surface<glutin::surface::WindowSurface>,
+     gbm_display: Rc<GbmDisplay>,
++    gpu_probe: Option<GpuProbe>,
++}
++
++
++// A fence brackets GPU completion with zero-timeout polls. A flush is needed to
++// submit the fence before the DRM wait, so capture runs may perturb scheduling.
++#[derive(Clone, Copy)]
++enum FenceApi {
++    Gl {
++        fence: unsafe extern "system" fn(u32, u32) -> *mut std::ffi::c_void,
++        poll: unsafe extern "system" fn(*mut std::ffi::c_void, u32, u64) -> u32,
++        delete: unsafe extern "system" fn(*mut std::ffi::c_void),
++    },
++    Egl {
++        display: *const std::ffi::c_void,
++        fence: unsafe extern "system" fn(*const std::ffi::c_void, u32, *const i32) -> *mut std::ffi::c_void,
++        poll: unsafe extern "system" fn(*const std::ffi::c_void, *mut std::ffi::c_void, i32, u64) -> i32,
++        delete: unsafe extern "system" fn(*const std::ffi::c_void, *mut std::ffi::c_void) -> u32,
++    },
++}
++struct GpuProbe {
++    api: FenceApi,
++    flush: unsafe extern "system" fn(),
++}
++
++impl GpuProbe {
++    fn new(context: &glutin::context::PossiblyCurrentContext) -> Option<Self> {
++        let display = context.display();
++        let address = |name: &std::ffi::CStr| display.get_proc_address(name);
++        let flush = address(c"glFlush");
++        if matches!(&display, glutin::display::Display::Egl(egl) if egl.extensions().contains("EGL_KHR_fence_sync")) {
++            if let RawDisplay::Egl(raw) = display.raw_display() {
++                let fence = address(c"eglCreateSyncKHR");
++                let poll = address(c"eglClientWaitSyncKHR");
++                let delete = address(c"eglDestroySyncKHR");
++                if ![fence, poll, delete, flush].iter().any(|p| p.is_null()) {
++                    frame_trace::event("gpu_fence_capability", None, &[frame_trace::Field::Str("status", "supported"), frame_trace::Field::Str("api", "egl_khr_fence_sync")]);
++                    return Some(unsafe { Self { api: FenceApi::Egl { display: raw, fence: std::mem::transmute(fence), poll: std::mem::transmute(poll), delete: std::mem::transmute(delete) }, flush: std::mem::transmute(flush) } });
++                }
++                frame_trace::event("gpu_fence_capability", None, &[frame_trace::Field::Str("status", "egl_fence_missing_entry_point")]);
++                return None;
++            }
++        }
++        let get_string = address(c"glGetString");
++        if get_string.is_null() {
++            frame_trace::event("gpu_fence_capability", None, &[frame_trace::Field::Str("status", "missing_gl_get_string")]);
++            return None;
++        }
++        let get_string: unsafe extern "system" fn(u32) -> *const u8 = unsafe { std::mem::transmute(get_string) };
++        let version = unsafe { get_string(0x1f02) };
++        if version.is_null() {
++            frame_trace::event("gpu_fence_capability", None, &[frame_trace::Field::Str("status", "missing_gl_version")]);
++            return None;
++        }
++        let version = unsafe { std::ffi::CStr::from_ptr(version.cast()) }.to_string_lossy();
++        let (gles, number) = if let Some(v) = version.strip_prefix("OpenGL ES ") { (true, v) } else { (false, version.as_ref()) };
++        let mut parts = number.split(|c: char| !c.is_ascii_digit());
++        let major = parts.next().and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
++        let minor = parts.next().and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
++        if (gles && major < 3) || (!gles && (major, minor) < (3, 2)) {
++            frame_trace::event("gpu_fence_capability", None, &[frame_trace::Field::Str("status", "unsupported_core_version_no_egl_khr_fence_sync"), frame_trace::Field::U64("major", major as u64), frame_trace::Field::U64("minor", minor as u64), frame_trace::Field::Bool("gles", gles)]);
++            return None;
++        }
++        let fence = address(c"glFenceSync");
++        let poll = address(c"glClientWaitSync");
++        let delete = address(c"glDeleteSync");
++        if [fence, poll, delete, flush].iter().any(|p| p.is_null()) {
++            frame_trace::event("gpu_fence_capability", None, &[frame_trace::Field::Str("status", "missing_entry_point")]);
++            return None;
++        }
++        frame_trace::event("gpu_fence_capability", None, &[frame_trace::Field::Str("status", "supported"), frame_trace::Field::Str("api", "gl_core"), frame_trace::Field::U64("major", major as u64), frame_trace::Field::U64("minor", minor as u64), frame_trace::Field::Bool("gles", gles)]);
++        Some(unsafe { Self { api: FenceApi::Gl { fence: std::mem::transmute(fence), poll: std::mem::transmute(poll), delete: std::mem::transmute(delete) }, flush: std::mem::transmute(flush) } })
++    }
++
++    fn begin(&self, id: Option<u64>) -> Option<*mut std::ffi::c_void> {
++        let fence = unsafe { match self.api {
++            FenceApi::Gl { fence, .. } => fence(0x9117, 0), // GL_SYNC_GPU_COMMANDS_COMPLETE
++            FenceApi::Egl { display, fence, .. } => fence(display, 0x30f9, std::ptr::null()), // EGL_SYNC_FENCE_KHR
++        } };
++        if fence.is_null() {
++            frame_trace::event("gpu_fence_create_failed", id, &[]);
++            return None;
++        }
++        unsafe { (self.flush)() };
++        frame_trace::event("gpu_fence_submitted", id, &[]);
++        Some(fence)
++    }
++
++    fn poll(&self, fence: *mut std::ffi::c_void, id: Option<u64>, phase: &'static str) {
++        let status = unsafe { match self.api {
++            FenceApi::Gl { poll, .. } => match poll(fence, 0, 0) {
++                0x911a | 0x911c => "signaled",
++                0x911b => "pending",
++                _ => "failed",
++            },
++            FenceApi::Egl { display, poll, .. } => match poll(display, fence, 0, 0) {
++                0x30f6 => "signaled", // EGL_CONDITION_SATISFIED_KHR
++                0x30f5 => "pending", // EGL_TIMEOUT_EXPIRED_KHR
++                _ => "failed",
++            },
++        } };
++        frame_trace::event("gpu_fence_poll", id, &[frame_trace::Field::Str("phase", phase), frame_trace::Field::Str("status", status)]);
++    }
++    fn delete(&self, fence: *mut std::ffi::c_void) {
++        unsafe { match self.api {
++            FenceApi::Gl { delete, .. } => delete(fence),
++            FenceApi::Egl { display, delete, .. } => { delete(display, fence); },
++        } }
++    }
+ }
+ 
+ impl GlContextWrapper {
+@@ -109,9 +218,18 @@
+             .into()
+     })?;
+ 
++        let gpu_probe = if frame_trace::enabled() {
++            if std::env::var("FRAME_GPU_FENCE_TRACE").as_deref() == Ok("1") {
++                GpuProbe::new(&context)
++            } else {
++                frame_trace::event("gpu_fence_capability", None, &[frame_trace::Field::Str("status", "not_requested")]);
++                None
++            }
++        } else { None };
+         Ok(Self {
+             glutin_context: context,
+             glutin_surface: surface,
++            gpu_probe,
+             gbm_display: gbm_display.clone(),
+         })
+     }
+@@ -132,8 +250,22 @@
+     fn swap_buffers(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+         // Make sure the in-flight font-buffer from the previous swap_buffers call has been
+         // posted to the screen.
++        let id = frame_trace::current_frame();
++        let gpu_probe = self.gpu_probe.as_ref().filter(|_| frame_trace::enabled());
++        let fence = gpu_probe.and_then(|probe| probe.begin(id));
++        if let (Some(probe), Some(fence)) = (gpu_probe, fence) { probe.poll(fence, id, "before_wait"); }
++        frame_trace::event("page_flip_wait_begin", id, &[]);
+         self.gbm_display.drm_output.wait_for_page_flip();
+-        self.glutin_surface.swap_buffers(&self.glutin_context).map_err(
++        frame_trace::event("page_flip_wait_end", id, &[]);
++        if let (Some(probe), Some(fence)) = (gpu_probe, fence) { probe.poll(fence, id, "after_wait"); }
++        frame_trace::event("swap_begin", id, &[]);
++        let result = self.glutin_surface.swap_buffers(&self.glutin_context);
++        frame_trace::event("swap_end", id, &[frame_trace::Field::Bool("success", result.is_ok())]);
++        if let (Some(probe), Some(fence)) = (gpu_probe, fence) {
++            probe.poll(fence, id, "after_swap");
++            probe.delete(fence);
++        }
++        result.map_err(
+             |glutin_error| -> PlatformError {
+                 format!("FemtoVG: Error swapping buffers: {glutin_error}").into()
+             },
+@@ -191,6 +323,12 @@
+         rotation: RenderingRotation,
+         draw_mouse_cursor_callback: &dyn Fn(&mut dyn ItemRenderer),
+     ) -> Result<DrawOutcome, PlatformError> {
++        struct TraceFrame;
++        impl Drop for TraceFrame {
++            fn drop(&mut self) { frame_trace::end_frame(); }
++        }
++        let id = frame_trace::begin_frame();
++        let _trace = TraceFrame;
+         let outcome = self.renderer.render_transformed_with_post_callback(
+             rotation.degrees(),
+             rotation.translation_after_rotation(self.size),
+@@ -200,7 +338,10 @@
+             }),
+         )?;
+         if matches!(outcome, DrawOutcome::Success) {
+-            self.gbm_display.present()?;
++            frame_trace::event("present_begin", id, &[]);
++            let result = self.gbm_display.present();
++            frame_trace::event("present_end", id, &[frame_trace::Field::Bool("success", result.is_ok())]);
++            result?;
+         }
+         Ok(outcome)
+     }
+--- a/drmoutput.rs
++++ b/drmoutput.rs
+@@ -43,6 +43,7 @@
+     crtc: drm::control::crtc::Handle,
+     last_buffer: Cell<Option<Box<dyn Buffer>>>,
+     page_flip_state: Rc<RefCell<PageFlipState>>,
++    trace_submitted_frame: Cell<Option<u64>>,
+ }
+ 
+ impl DrmOutput {
+@@ -205,6 +206,7 @@
+             crtc,
+             last_buffer: Cell::default(),
+             page_flip_state: Default::default(),
++            trace_submitted_frame: Cell::new(None),
+         })
+     }
+ 
+@@ -218,6 +220,10 @@
+                 .page_flip(self.crtc, framebuffer_handle, drm::control::PageFlipFlags::EVENT, None)
+                 .map_err(|e| format!("Error presenting framebuffer on screen: {e}"))?;
+ 
++            self.trace_submitted_frame.set(frame_trace::current_frame());
++            frame_trace::event("drm_submit", self.trace_submitted_frame.get(), &[
++                frame_trace::Field::Bool("initial_modeset", false),
++            ]);
+             *self.page_flip_state.borrow_mut() =
+                 PageFlipState::WaitingForPageFlip { _buffer_to_keep_alive_until_flip: last_buffer };
+         } else {
+@@ -230,6 +236,9 @@
+                     Some(self.mode),
+                 )
+                 .map_err(|e| format!("Error presenting framebuffer on screen: {e}"))?;
++            frame_trace::event("drm_submit", frame_trace::current_frame(), &[
++                frame_trace::Field::Bool("initial_modeset", true),
++            ]);
+             *self.page_flip_state.borrow_mut() = PageFlipState::InitialBufferPosted;
+         }
+ 
+@@ -251,7 +260,17 @@
+                 return;
+             };
+ 
+-            if event_it.any(|event| matches!(event, drm::control::Event::PageFlip(..)))
++            if event_it.any(|event| {
++                if let drm::control::Event::PageFlip(flip) = event {
++                    frame_trace::event("drm_flip_received", self.trace_submitted_frame.take(), &[
++                        frame_trace::Field::U64("kernel_sequence", flip.frame as u64),
++                        frame_trace::Field::U64("kernel_time_us", flip.duration.as_micros() as u64),
++                    ]);
++                    true
++                } else {
++                    false
++                }
++            })
+                 && let PageFlipState::WaitingForPageFlip { .. } =
+                     self.page_flip_state.replace(PageFlipState::ReadyForNextBuffer)
+             {

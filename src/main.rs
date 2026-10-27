@@ -413,6 +413,7 @@ fn schedule_clock(weak: slint::Weak<AppWindow>, st: Rc<State>) {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(all(feature = "frame", target_os = "linux"))]
     let termination_signals = shutdown::block_termination()?;
+    let _trace_guard = frame_trace::init_from_env();
     let app = AppWindow::new()?;
     let models = Models {
         agenda_past: Rc::new(VecModel::default()),

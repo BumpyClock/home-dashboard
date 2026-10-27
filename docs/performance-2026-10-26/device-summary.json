@@ -1,0 +1,321 @@
+{
+  "runs": [
+    {
+      "run": "cold",
+      "valid": true,
+      "width": 800,
+      "height": 1280,
+      "photos": [
+        0,
+        1
+      ],
+      "frames": 29,
+      "seconds": 30.000939,
+      "cpu_s": 7.1,
+      "peak_rss_mib": 76.921875,
+      "final_rss_mib": 68.53125,
+      "first_advance_s": 20.218821,
+      "slide_interval_median_ms": 34.146,
+      "slide_interval_range_ms": [
+        32.774,
+        149.999
+      ],
+      "slide_samples": 8,
+      "photo_errors": []
+    },
+    {
+      "run": "new-1",
+      "valid": true,
+      "width": 800,
+      "height": 1280,
+      "photos": [
+        0,
+        1
+      ],
+      "frames": 22,
+      "seconds": 30.000593,
+      "cpu_s": 1.89,
+      "peak_rss_mib": 71.23046875,
+      "final_rss_mib": 66.23828125,
+      "first_advance_s": 20.236231,
+      "slide_interval_median_ms": 40.811,
+      "slide_interval_range_ms": [
+        33.896,
+        144.197
+      ],
+      "slide_samples": 8,
+      "photo_errors": []
+    },
+    {
+      "run": "new-2",
+      "valid": true,
+      "width": 800,
+      "height": 1280,
+      "photos": [
+        0,
+        1
+      ],
+      "frames": 23,
+      "seconds": 30.000236,
+      "cpu_s": 1.92,
+      "peak_rss_mib": 72.46875,
+      "final_rss_mib": 66.1953125,
+      "first_advance_s": 20.228518,
+      "slide_interval_median_ms": 34.614999999999995,
+      "slide_interval_range_ms": [
+        33.817,
+        143.593
+      ],
+      "slide_samples": 8,
+      "photo_errors": []
+    },
+    {
+      "run": "new-3",
+      "valid": true,
+      "width": 800,
+      "height": 1280,
+      "photos": [
+        0,
+        1
+      ],
+      "frames": 23,
+      "seconds": 29.999613,
+      "cpu_s": 1.9,
+      "peak_rss_mib": 71.05078125,
+      "final_rss_mib": 65.1796875,
+      "first_advance_s": 20.225243,
+      "slide_interval_median_ms": 34.314,
+      "slide_interval_range_ms": [
+        33.798,
+        139.259
+      ],
+      "slide_samples": 8,
+      "photo_errors": []
+    },
+    {
+      "run": "new-4",
+      "valid": true,
+      "width": 800,
+      "height": 1280,
+      "photos": [
+        0,
+        1
+      ],
+      "frames": 23,
+      "seconds": 30.000312,
+      "cpu_s": 1.93,
+      "peak_rss_mib": 73.16015625,
+      "final_rss_mib": 66.71484375,
+      "first_advance_s": 20.238511,
+      "slide_interval_median_ms": 34.1345,
+      "slide_interval_range_ms": [
+        33.881,
+        142.384
+      ],
+      "slide_samples": 8,
+      "photo_errors": []
+    },
+    {
+      "run": "new-5",
+      "valid": true,
+      "width": 800,
+      "height": 1280,
+      "photos": [
+        0,
+        1
+      ],
+      "frames": 25,
+      "seconds": 30.000707,
+      "cpu_s": 1.91,
+      "peak_rss_mib": 71.12109375,
+      "final_rss_mib": 65.11328125,
+      "first_advance_s": 20.223162,
+      "slide_interval_median_ms": 34.086,
+      "slide_interval_range_ms": [
+        31.389,
+        141.503
+      ],
+      "slide_samples": 9,
+      "photo_errors": []
+    },
+    {
+      "run": "old-1",
+      "valid": true,
+      "width": 800,
+      "height": 1280,
+      "photos": [
+        0,
+        1
+      ],
+      "frames": 29,
+      "seconds": 30.000716,
+      "cpu_s": 6.7,
+      "peak_rss_mib": 131.4765625,
+      "final_rss_mib": 68.08203125,
+      "first_advance_s": 20.213743,
+      "slide_interval_median_ms": 34.4675,
+      "slide_interval_range_ms": [
+        31.094,
+        152.438
+      ],
+      "slide_samples": 8,
+      "photo_errors": []
+    },
+    {
+      "run": "old-2",
+      "valid": true,
+      "width": 800,
+      "height": 1280,
+      "photos": [
+        0,
+        1
+      ],
+      "frames": 30,
+      "seconds": 30.000722,
+      "cpu_s": 6.74,
+      "peak_rss_mib": 131.890625,
+      "final_rss_mib": 68.41015625,
+      "first_advance_s": 20.222971,
+      "slide_interval_median_ms": 34.142,
+      "slide_interval_range_ms": [
+        33.733,
+        144.87
+      ],
+      "slide_samples": 9,
+      "photo_errors": []
+    },
+    {
+      "run": "old-3",
+      "valid": true,
+      "width": 800,
+      "height": 1280,
+      "photos": [
+        0,
+        1
+      ],
+      "frames": 28,
+      "seconds": 30.000386,
+      "cpu_s": 6.81,
+      "peak_rss_mib": 132.86328125,
+      "final_rss_mib": 67.21875,
+      "first_advance_s": 20.218557,
+      "slide_interval_median_ms": 34.371,
+      "slide_interval_range_ms": [
+        33.631,
+        148.252
+      ],
+      "slide_samples": 8,
+      "photo_errors": []
+    },
+    {
+      "run": "old-4",
+      "valid": true,
+      "width": 800,
+      "height": 1280,
+      "photos": [
+        0,
+        1
+      ],
+      "frames": 29,
+      "seconds": 30.000042,
+      "cpu_s": 6.8,
+      "peak_rss_mib": 132.79296875,
+      "final_rss_mib": 67.20703125,
+      "first_advance_s": 20.212408,
+      "slide_interval_median_ms": 34.1555,
+      "slide_interval_range_ms": [
+        33.925,
+        149.642
+      ],
+      "slide_samples": 8,
+      "photo_errors": []
+    },
+    {
+      "run": "old-5",
+      "valid": true,
+      "width": 800,
+      "height": 1280,
+      "photos": [
+        0,
+        1
+      ],
+      "frames": 28,
+      "seconds": 30.0009,
+      "cpu_s": 6.71,
+      "peak_rss_mib": 131.10546875,
+      "final_rss_mib": 67.4296875,
+      "first_advance_s": 20.222702,
+      "slide_interval_median_ms": 34.2385,
+      "slide_interval_range_ms": [
+        33.734,
+        147.722
+      ],
+      "slide_samples": 8,
+      "photo_errors": []
+    }
+  ],
+  "summary": {
+    "old": {
+      "runs": 5,
+      "cpu_s": {
+        "median": 6.74,
+        "range": [
+          6.7,
+          6.81
+        ]
+      },
+      "peak_rss_mib": {
+        "median": 131.890625,
+        "range": [
+          131.10546875,
+          132.86328125
+        ]
+      },
+      "final_rss_mib": {
+        "median": 67.4296875,
+        "range": [
+          67.20703125,
+          68.41015625
+        ]
+      },
+      "slide_interval_median_ms": {
+        "median": 34.2385,
+        "range": [
+          34.142,
+          34.4675
+        ]
+      }
+    },
+    "new": {
+      "runs": 5,
+      "cpu_s": {
+        "median": 1.91,
+        "range": [
+          1.89,
+          1.93
+        ]
+      },
+      "peak_rss_mib": {
+        "median": 71.23046875,
+        "range": [
+          71.05078125,
+          73.16015625
+        ]
+      },
+      "final_rss_mib": {
+        "median": 66.1953125,
+        "range": [
+          65.11328125,
+          66.71484375
+        ]
+      },
+      "slide_interval_median_ms": {
+        "median": 34.314,
+        "range": [
+          34.086,
+          40.811
+        ]
+      }
+    }
+  }
+}

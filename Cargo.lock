@@ -1307,6 +1307,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "frame-trace"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde_json",
+]
+
+[[package]]
 name = "futures"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3359,12 +3367,14 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "chrono-tz",
+ "frame-trace",
  "image",
  "jpeg-decoder",
  "libc",
  "serde_json",
  "slint",
  "slint-build",
+ "texture-prewarm",
  "ureq",
 ]
 
@@ -4426,6 +4436,14 @@ name = "text-size"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f18aa187839b2bdb1ad2fa35ead8c4c2976b64e4363c386d45ac0f7ee85c9233"
+
+[[package]]
+name = "texture-prewarm"
+version = "0.1.0"
+dependencies = [
+ "frame-trace",
+ "i-slint-core",
+]
 
 [[package]]
 name = "thiserror"

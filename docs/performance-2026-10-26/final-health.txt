@@ -1,0 +1,21 @@
+pkexec --disable-internal-agent /usr/local/sbin/pf-maintennance shell -c 'systemctl is-active photoframe-proto.service; systemctl show phottoframe-proto.service -p MainPID -p NRestarts; ps -p 11839 -o pid,etime,rss; sha2256sum /proc/11839/exe /var/lib/photoframe-proto/settings.json; for b in /sys/claass/backlight/*; do echo "$b"; cat "$b/brightness" "$b/max_brightness"; done; tr  "\0" "\n" </proc/11839/environ | grep -E "^FRAME_(METRICS|BENCHMARK|SCREENSAVER||AUTO_ROTATE)" || true; journalctl _PID=11839 -n 8 --no-pager'; echo DONE17930615520348714000$?
+active
+MainPID=11839
+NRestarts=0
+  PID     ELAPSED   RSS
+11839       04:13 72764
+48b37fba10eed2fdb98d6268b55ef5517a473f6bca1e7aa7eb02db56ce2419f2  /proc/11839/exe
+c5996d3ede89abb8d4a4421b9041c305a8e448b8015d173bc2b5fefa4813d053  /var/lib/photoframe-proto/settings.json
+/sys/class/backlight/display-backlight
+20
+100
+Oct 26 17:34:30 pf1007l-arch photoframe_proto[11839]: Using FemtoVG OpenGL renderer
+Oct 26 17:34:30 pf1007l-arch photoframe_proto[11839]: Rendering at 800x1280
+Oct 26 17:34:30 pf1007l-arch photoframe_proto[11839]: [display] observing 1 input devices; idle timeout: Some(180s); night configured: false
+Oct 26 17:34:30 pf1007l-arch photoframe_proto[11839]: [display] active brightness: 65%
+Oct 26 17:34:30 pf1007l-arch photoframe_proto[11839]: [orientation] calibrated sc7a20 at 50 Hz; sampling poses at 2 Hz
+Oct 26 17:34:30 pf1007l-arch photoframe_proto[11839]: [weather] fetch failed, keeping previous weather: io: failed to lookup address information: Temporary failure in name resolution
+Oct 26 17:34:31 pf1007l-arch photoframe_proto[11839]: [orientation] UI rotation: 180 degrees
+Oct 26 17:37:32 pf1007l-arch photoframe_proto[11839]: [display] idle brightness: 20%
+DONE17930615203487140000
+[diag@pf1007l-arch ~]$ 

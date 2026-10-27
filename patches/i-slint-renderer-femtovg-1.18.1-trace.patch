@@ -1,0 +1,69 @@
+--- a/lib.rs
++++ b/lib.rs
+@@ -171,9 +171,27 @@
+         surface_size: i_slint_core::api::PhysicalSize,
+         post_render_cb: Option<&dyn Fn(&mut dyn ItemRenderer)>,
+     ) -> Result<DrawOutcome, i_slint_core::platform::PlatformError> {
++        struct TraceFrame { id: Option<u64>, success: bool, owns_frame: bool }
++        impl Drop for TraceFrame {
++            fn drop(&mut self) {
++                if self.id.is_some() {
++                    frame_trace::event("render_end", self.id, &[frame_trace::Field::Bool("success", self.success)]);
++                    if self.owns_frame { frame_trace::end_frame(); }
++                }
++            }
++        }
++        let existing = frame_trace::current_frame();
++        let mut trace = TraceFrame {
++            id: existing.or_else(frame_trace::begin_frame), success: false,
++            owns_frame: existing.is_none(),
++        };
++        frame_trace::event("render_begin", trace.id, &[]);
+         let surface = match self.graphics_backend.begin_surface_rendering()? {
+             BeginRendering::Acquired(s) => s,
+-            BeginRendering::Skipped(outcome) => return Ok(outcome),
++            BeginRendering::Skipped(outcome) => {
++                trace.success = true;
++                return Ok(outcome);
++            }
+         };
+         let render_target = surface.initial_render_target();
+ 
+@@ -197,14 +215,17 @@
+             window_size.width.try_into().ok().zip(window_size.height.try_into().ok())
+         else {
+             // Nothing to render
++            trace.success = true;
+             return Ok(DrawOutcome::Success);
+         };
+ 
+         if self.canvas.borrow().is_none() {
+             // Nothing to render
++            trace.success = true;
+             return Ok(DrawOutcome::Success);
+         }
+ 
++        frame_trace::event("scene_begin", trace.id, &[]);
+         let window_inner = WindowInner::from_pub(window);
+         let scale = window_inner.scale_factor().ceil();
+ 
+@@ -318,8 +339,11 @@
+                     collector.measure_frame_rendered(&mut item_renderer, metrics);
+                 }
+ 
++                frame_trace::event("scene_end", trace.id, &[]);
++                frame_trace::event("flush_begin", trace.id, &[]);
+                 let commands = canvas.borrow_mut().flush_to_output(surface.render_output());
+                 self.graphics_backend.submit_commands(commands);
++                frame_trace::event("flush_end", trace.id, &[]);
+ 
+                 // Delete any images and layer images (and their FBOs) before making the context not current anymore, to
+                 // avoid GPU memory leaks.
+@@ -334,6 +358,7 @@
+         }
+ 
+         self.graphics_backend.present_surface(surface)?;
++        trace.success = true;
+         Ok(DrawOutcome::Success)
+     }
+ 

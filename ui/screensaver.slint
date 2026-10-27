@@ -42,6 +42,7 @@ component Glance inherits VerticalLayout {
 }
 
 component Screensaver inherits PhotoStage {
+    trace-kind: 1;
     ready: Frame.photos[Frame.photo-index].full.width > 0;
     running: true;
     autoplay: Theme.ambient;
@@ -64,23 +65,28 @@ component Screensaver inherits PhotoStage {
             : Frame.photos[i].thumb.width > 0 ? Frame.photos[i].thumb : Frame.photos[i].image;
     }
     Image {
-        source: best-available(root.previous-index);
+        source: best-available(root.slot-0-index);
         image-fit: cover;
         width: parent.width;
         height: parent.height;
-        x: root.previous-x;
-        visible: root.moving;
+        x: root.current-slot-1 ? root.previous-x : root.current-x;
+        opacity: root.current-slot-1 ? 1 : root.current-opacity;
+        visible: !root.current-slot-1 || root.moving;
+        z: root.current-slot-1 ? 0 : 1;
     }
     Image {
-        source: best-available(root.current-index);
+        source: best-available(root.slot-1-index);
         image-fit: cover;
         width: parent.width;
         height: parent.height;
-        x: root.current-x;
-        opacity: root.current-opacity;
+        x: root.current-slot-1 ? root.current-x : root.previous-x;
+        opacity: root.current-slot-1 ? root.current-opacity : 1;
+        visible: root.current-slot-1 || root.moving;
+        z: root.current-slot-1 ? 1 : 0;
     }
-    Rectangle { background: Fixed.black; opacity: Alpha.night-dim; visible: Frame.night-active; }
+    Rectangle { z: 2; background: Fixed.black; opacity: Alpha.night-dim; visible: Frame.night-active; }
     if wide: HorizontalLayout {
+        z: 2;
         padding: Space.saver;
         VerticalLayout {
             alignment: end;
@@ -90,6 +96,7 @@ component Screensaver inherits PhotoStage {
         Glance { width: Size.saver-glance; }
     }
     if !wide: HorizontalLayout {
+        z: 2;
         padding: Space.saver;
         spacing: Space.xxl;
         VerticalLayout {
@@ -148,7 +155,10 @@ export component SaverLayer inherits Rectangle {
     }
     property <bool> active: Saver.active;
     changed active => {
-        if (!active) { Saver.full-current = -1; Saver.full-previous = -1; }
+        if (!active) {
+            if (Saver.full-previous >= 0) { Frame.trace-photo-stage(1, 3, Frame.photo-index, Saver.full-current, Saver.full-previous, false); }
+            Saver.full-current = -1; Saver.full-previous = -1;
+        }
     }
     changed width => { report-size(); }
     changed height => { report-size(); }

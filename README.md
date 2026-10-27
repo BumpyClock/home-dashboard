@@ -26,7 +26,7 @@ Useful env vars:
 | `FRAME_TAB=0..5` | Start on a tab: Home, Calendar, Photos, Lists, Meals, Settings. |
 | `FRAME_SETTINGS=path.json` | Settings file (default `~/.config/family-frame/settings.json`). |
 | `FRAME_PHOTOS=dir` | Folder of `.jpg`/`.jpeg` photos, oldest EXIF date first (default `assets/photos`, also the fallback when the folder is empty). Captions are the EXIF month and year. |
-| `FRAME_THUMB_CACHE=dir` | Directory for stored grid thumbnails, built once per photo version (default `$XDG_CACHE_HOME/family-frame/thumbs`, else `~/.cache/family-frame/thumbs`). Empty disables the store. |
+| `FRAME_THUMB_CACHE=dir` | Directory for stored grid thumbnails and full-screen renditions, keyed by photo version and output size (default `$XDG_CACHE_HOME/family-frame/thumbs`, else `~/.cache/family-frame/thumbs`). Empty disables the store. |
 | `FRAME_DECODE_THREADS=2` | Photo decode threads, 1 to 3 (default 2). `1` decodes one photo at a time. The UI thread needs one core of the quad-core frame. |
 | `FRAME_SCREENSAVER=1` | Start in the screensaver (screenshots). |
 | `FRAME_FORCE_URGENT=1` | Pulse the "next up" dot as if an event is ≤15 min away. |
@@ -37,6 +37,8 @@ Useful env vars:
 | `FRAME_AUTO_ROTATE=0` | Disable calibrated SC7A20 rotation in frame builds. See [calibration and configuration](docs/orientation.md). |
 | `FRAME_PHOTO_SCRIM=svg` / `baked` | Select an SVG caption overlay or a ramp fused into decoded photos. Frame builds default to `baked`; desktop builds default to `svg`. |
 | `FRAME_METRICS_OUTPUT=/absolute/external/run.json`, `FRAME_BENCHMARK=1` | Capture the scripted frame workload after warmup. See [measurement instructions](docs/performance.md). |
+| `FRAME_TRACE_OUTPUT=/absolute/new/run.jsonl`, `FRAME_TRACE_SECONDS=60` | Capture bounded local photo, animation, and resource events. Renderer/backend events require an explicit `PF_RENDER_TRACE=1` diagnostic build. See [trace capture and interpretation](docs/frame-trace.md). Disabled unless an output is set. |
+| `FRAME_GPU_FENCE_TRACE=1` | During an explicit trace capture, probe GPU fence support and poll completion without waiting. Adds a diagnostic flush and can change scheduling; leave unset for normal comparisons. |
 
 ## Data seams (where real sources plug in)
 
@@ -94,7 +96,7 @@ advances every two minutes with Full motion; Calm, Off, hidden Home, and
 configured night windows stop automatic advances. Taps still advance photos. Current source
 defaults to slides and uses baked caption ramps in frame builds.
 
-Photos are decoded and cover-cropped on a worker thread, cached after a
+Photos are decoded and cover-cropped on worker threads, cached after a
 complete batch, and sized to the ceiling of the card's physical pixel
 dimensions. Only the two photos in a transition draw. Scroll physics samples
 closed-form coast and spring motion at each animation frame, with no scroll

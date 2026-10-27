@@ -1,0 +1,8 @@
+Host probe, 800x1280 fitted RGB, jpeg encoder quality 90, decoded back to RGB.
+Columns: source, JPEG bytes, mean absolute channel error / 255, maximum channel error / 255.
+family-beach.jpg 287202 1.2102 21
+family-kitchen.jpg 122894 0.4865 13
+coast-sunset.jpg 280689 1.5676 19
+palolem.jpg 198166 0.7938 26
+kids-leaves.jpg 389163 1.5388 20
+The two PNGs show the original and stored version of family-beach at full output size.

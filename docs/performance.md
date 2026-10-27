@@ -48,9 +48,9 @@ Photo decode runs on up to `FRAME_DECODE_THREADS` worker threads (default 2,
 1 to 3). A worker claims the most urgent photo that no other worker has in
 flight, renders all its renditions, and publishes them as soon as they are
 done, so an urgent photo never waits for a slower one. A card batch is done
-only when no card slot is missing or in flight. Each job holds at most about
-18 MB transiently (file bytes, one reduced decode, fit buffers), so peak
-extra memory is that times the thread count. `FRAME_DECODE_THREADS=1` keeps
+only when no card slot is missing or in flight. Peak memory depends on source
+dimensions, reduced JPEG scale, output size, and concurrent workers; the
+previous roughly 18 MB per-job estimate was not a general upper bound. `FRAME_DECODE_THREADS=1` keeps
 the single-worker order. Completed batches are reused at the
 same size; interrupted batches can reload. The decode size is the ceiling
 of the card's physical pixel dimensions, and completed image geometry
@@ -150,7 +150,56 @@ in the Settings tab. Production release
 `b27b4b6f` includes these defaults; checkpoint `9e34868` remains a rollback. The matched slide workload and GPU appearance checks passed;
 its cadence still falls short of stable 60 FPS.
 
+## Full-screen rendition reuse and cover resizing
+
+Full-screen renditions are stored on demand under `FRAME_THUMB_CACHE/full`.
+Their keys include the source path, modification time, length, both output
+dimensions, and a format version. Existing grid thumbnail names remain
+compatible. Empty `FRAME_THUMB_CACHE` disables both disk stores.
+
+A worker queues a newly rendered full-screen image for the UI before encoding
+and writing its disk copy. Later loads read the display-sized JPEG and skip
+original decoding and resizing. Invalid cache files fall back to the source.
+Full-screen disk entries are limited to 128 MiB, with oldest writes removed
+first. The RAM limits and two-worker default remain unchanged. Entries for
+old source versions or orientations age out under that disk limit. There is
+no eager full-library pass for full-screen files.
+
+Stored images use JPEG quality 90. On the five bundled photos fitted to
+800×1280, mean absolute channel error after a cache round trip was
+0.49–1.57 out of 255; the maximum was 13–26. Each file was 120–380 KiB.
+Cached pixels are therefore not identical to the first uncached rendering.
+These host checks do not establish an imperceptible difference for every
+photo. Cache creation adds encoding and flash writes, even though it no
+longer delays posting that image to the UI.
+
+The cover sampler preserves the existing Triangle filter, sample positions,
+rounding, and centered crop. It writes only the retained pixels into the
+final buffer. Its working storage is one RGB float row plus horizontal
+weights, rather than a source-width by resized-height RGBA float image.
+The original geometry and output budgets still apply. Pixel equivalence and
+measurement results are recorded in the [October 26 validation report](performance-2026-10-26.md).
+
+Photo slides and fades now alternate two stable image slots. Frame builds
+prepare the next visible surface's texture after a normal frame and retain
+at most 16 MiB of estimated prepared texture bytes. Photo demand owns this
+handoff, independently of metrics and tracing. Navigation, missing pixels,
+and active transitions cancel pending uploads; the next settled demand
+can enqueue a replacement. Full-screen cache writes use one bounded writer,
+with at most eight active/queued buffers and 24 MiB of reserved pixels.
+Queue pressure skips optional persistence without delaying photo decode.
+The [October 27 optimization report](performance-2026-10-27.md) records five
+matched hardware pairs, cold-cache writer checks, and consecutive slides for
+the measured implementation. Later source edits are identified separately.
+The historical [trace validation](frame-trace-validation-2026-10-27.md)
+predates these optimizations.
+
 ## Reproduce a capture
+
+For photo pipeline and renderer stage attribution, use the new
+[bounded frame trace](frame-trace.md). It records transition boundaries so
+long stalls need not be removed by an arbitrary interval cutoff. Trace-only
+captures do not install the rendering notifier described below.
 
 Use a release build, the same five demo photos, settings, display mode,
 GPU policy, and thermal conditions for both runs. Record the source
@@ -207,6 +256,10 @@ both sides of a comparison.
 including presentation waits and idle gaps. It does not timestamp a panel
 scanout. Report cadence within animation bursts; treating idle gaps as
 slow frames would misrepresent a dashboard that sleeps between updates.
+Schema 3 retains the prior fields and adds `animation_active`, sampled at
+`BeforeRendering`. It identifies photo transitions, not every UI animation.
+A transition may end before the next callback; use trace start/end events
+for complete boundary analysis rather than filtering only on that boolean.
 For the 60 FPS target, count intervals at or below 16,667 µs within those
 bursts and report dispersion, rather than relying on average FPS alone.
 

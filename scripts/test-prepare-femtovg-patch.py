@@ -31,7 +31,7 @@ class PreparationTests(unittest.TestCase):
     def setUp(self):
         self.scratch = tempfile.TemporaryDirectory(prefix="pf-patch-test-")
         self.addCleanup(self.scratch.cleanup)
-        self.root = Path(self.scratch.name)
+        self.root = Path(self.scratch.name).resolve()
         self.source = self.root / "source"
         self.source.mkdir()
         for name in helper.BUILD_INPUTS:
@@ -98,6 +98,52 @@ class PreparationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "checksum"):
                     helper.prepare(self.source, self.metadata, self.output, image_aa, quarter_turn)
                 self.assertFalse(self.output.exists())
+
+    def test_trace_hooks_share_one_collector_and_preserve_registry(self):
+        pins = json.loads((self.source / "patches/render-trace-pins.json").read_text())
+        registries = [Path(self.package(name)["manifest_path"]).parent for name in pins]
+        before = {p: directory_hash(p) for p in registries}
+        for fixes in [False, True]:
+            app = helper.prepare(self.source, self.metadata, self.output, fixes, fixes, True)
+            for name, pin in pins.items():
+                crate = app.parent / name
+                manifest = (crate / "Cargo.toml").read_text()
+                self.assertIn(str(app / "instrumentation/frame-trace"), manifest)
+                for filename, hashes in pin["files"].items():
+                    self.assertEqual(hashlib.sha256((crate / filename).read_bytes()).hexdigest(), hashes["result"])
+        self.assertEqual(before, {p: directory_hash(p) for p in registries})
+
+    def test_trace_rejects_changed_source_before_copying(self):
+        data = json.loads(METADATA.read_text())
+        package = next(p for p in data["packages"] if p["name"] == "i-slint-backend-linuxkms")
+        copied = self.root / "registry/src/test/linuxkms"
+        shutil.copytree(Path(package["manifest_path"]).parent, copied)
+        package["manifest_path"] = str(copied / "Cargo.toml")
+        (copied / "drmoutput.rs").write_text("changed")
+        self.metadata.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, "pinned trace source"):
+            helper.prepare(self.source, self.metadata, self.output, False, False, True)
+        self.assertFalse(self.output.exists())
+
+    def test_texture_patch_composes_with_trace_and_aa(self):
+        pins = json.loads((self.source / "patches/texture-prewarm-pins.json").read_text())
+        registry = Path(self.package(helper.CRATE)["manifest_path"]).parent
+        before = directory_hash(registry)
+        for aa, trace in itertools.product([False, True], repeat=2):
+            app = helper.prepare(self.source, self.metadata, self.output, aa, False, trace, True)
+            crate = app.parent / helper.CRATE
+            for filename, hashes in pins["files"].items():
+                self.assertIn(hashlib.sha256((crate / filename).read_bytes()).hexdigest(), hashes["results"])
+            self.assertIn(str(app / "renderer/texture-prewarm"), (crate / "Cargo.toml").read_text())
+        self.assertEqual(directory_hash(registry), before)
+
+    def test_texture_patch_checksum_is_enforced(self):
+        pins = json.loads((self.source / "patches/texture-prewarm-pins.json").read_text())
+        patch = self.source / "patches" / pins["patch"]
+        patch.write_bytes(patch.read_bytes() + b"changed")
+        with self.assertRaisesRegex(ValueError, "pinned patch"):
+            helper.prepare(self.source, self.metadata, self.output, False, False, False, True)
+        self.assertFalse(self.output.exists())
 
     def test_rejects_changed_or_escaping_patch(self):
         for name, image_aa, quarter_turn in [

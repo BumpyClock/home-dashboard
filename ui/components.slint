@@ -309,12 +309,16 @@ export component WeatherCard inherits Rectangle {
 
 export component PhotoStage inherits Rectangle {
     in property <bool> running;
+    in property <int> trace-kind;
     in property <bool> autoplay;
     in property <bool> slide;
     in property <duration> interval;
     in property <bool> ready: true;
-    out property <int> current-index;
-    out property <int> previous-index: -1;
+    out property <int> current-index: current-slot-1 ? slot-1-index : slot-0-index;
+    out property <int> previous-index: moving ? (current-slot-1 ? slot-0-index : slot-1-index) : -1;
+    out property <int> slot-0-index;
+    out property <int> slot-1-index: -1;
+    out property <bool> current-slot-1;
     out property <bool> moving;
     out property <float> progress;
     property <int> direction: 1;
@@ -326,38 +330,44 @@ export component PhotoStage inherits Rectangle {
     property <bool> motion-enabled: Theme.motion;
     property <bool> snap: !running || !Theme.motion;
     animate progress { duration: moving && running ? Theme.d(Motion.photo-transition) : 0ms; easing: Motion.ease-photo; }
+    function trace-stage(event: int) {
+        Frame.trace-photo-stage(trace-kind, event, requested-index, current-index, previous-index, ready);
+    }
     changed requested-index => {
+        trace-stage(0);
         if (!moving) { start-transition(); }
     }
     changed ready => {
+        trace-stage(1);
         if (ready && !moving) { start-transition(); }
     }
     changed running => {
-        if (!running) { moving = false; previous-index = -1; current-index = requested-index; }
+        if (!running) { if (moving) { trace-stage(3); } moving = false; if (current-slot-1) { slot-1-index = requested-index; } else { slot-0-index = requested-index; } }
     }
     changed motion-enabled => {
-        if (!motion-enabled) { moving = false; previous-index = -1; start-transition(); }
+        if (!motion-enabled) { if (moving) { trace-stage(3); } moving = false; start-transition(); }
     }
     function start-transition() {
         if (requested-index == current-index) { return; }
         if (running && !ready) { return; }
         if (snap) {
-            current-index = requested-index;
-            previous-index = -1;
+            if (current-slot-1) { slot-1-index = requested-index; } else { slot-0-index = requested-index; }
+            trace-stage(4);
             return;
         }
-        previous-index = current-index;
         direction = Frame.photo-direction;
-        current-index = requested-index;
+        if (current-slot-1) { slot-0-index = requested-index; } else { slot-1-index = requested-index; }
+        current-slot-1 = !current-slot-1;
         progress = 0;
         moving = true;
+        trace-stage(2);
         progress = 1;
     }
-    init => { current-index = requested-index; }
+    init => { slot-0-index = requested-index; trace-stage(6); }
     Timer {
         interval: Motion.photo-transition;
         running: moving && root.running;
-        triggered => { moving = false; previous-index = -1; }
+        triggered => { trace-stage(5); moving = false; }
     }
     Timer {
         interval: Motion.coalesce;
@@ -425,25 +435,30 @@ export component PhotoCard inherits PhotoStage {
     changed physical-pixel => { report-size(); }
     init => { report-size(); report-displayed(); }
     Image {
-        source: Frame.photos[root.previous-index].image;
+        source: Frame.photos[root.slot-0-index].image;
         image-fit: cover;
         width: prescaled-extent(self.source, parent.width);
         height: prescaled-extent(self.source, parent.height);
-        x: root.previous-x;
-        visible: root.moving;
+        x: root.current-slot-1 ? root.previous-x : root.current-x;
+        opacity: root.current-slot-1 ? 1 : root.current-opacity;
+        visible: !root.current-slot-1 || root.moving;
+        z: root.current-slot-1 ? 0 : 1;
     }
     Image {
-        source: Frame.photos[root.current-index].image;
+        source: Frame.photos[root.slot-1-index].image;
         image-fit: cover;
         width: prescaled-extent(self.source, parent.width);
         height: prescaled-extent(self.source, parent.height);
-        x: root.current-x;
-        opacity: root.current-opacity;
+        x: root.current-slot-1 ? root.current-x : root.previous-x;
+        opacity: root.current-slot-1 ? root.current-opacity : 1;
+        visible: root.current-slot-1 || root.moving;
+        z: root.current-slot-1 ? 1 : 0;
     }
     Image {
         y: parent.height - self.height;
         width: parent.width;
         height: min(Size.photo-scrim, parent.height);
+        z: 2;
         source: @image-url("images/photo-scrim.svg");
         image-fit: fill;
         visible: !Frame.photo-scrim-baked;
@@ -452,12 +467,14 @@ export component PhotoCard inherits PhotoStage {
         y: parent.height - self.preferred-height - Space.xl;
         x: Space.photo-inset;
         width: parent.width - Space.photo-inset - Size.photo-caption-gap;
+        z: 2;
         text: Frame.photos[root.current-index].title;
         size: Type.display-m;
         color: Fixed.photo-fg;
         overflow: elide;
     }
     if Frame.photos.length <= pager-photo-limit: HorizontalLayout {
+        z: 2;
         x: parent.width - self.preferred-width - Space.photo-inset;
         y: parent.height - Space.xxl;
         width: self.preferred-width;
@@ -470,6 +487,7 @@ export component PhotoCard inherits PhotoStage {
         }
     }
     if Frame.photos.length == 0: Body {
+        z: 2;
         text: Frame.photos-loading ? "Loading photos…" : "No photos yet";
         color: Theme.c.muted;
         horizontal-alignment: center;
@@ -477,7 +495,7 @@ export component PhotoCard inherits PhotoStage {
         width: parent.width;
         height: parent.height;
     }
-    RoundedCornerMask { inner-width: parent.width; inner-height: parent.height; }
+    RoundedCornerMask { z: 2; inner-width: parent.width; inner-height: parent.height; }
     TouchArea {
         clicked => {
             if (Frame.photos.length > 0) {

@@ -1,0 +1,43 @@
+--- a/src/renderer/opengl.rs
++++ b/src/renderer/opengl.rs
+@@ -897,7 +897,14 @@
+     }
+ 
+     fn alloc_image(&mut self, info: ImageInfo) -> Result<Self::Image, ErrorKind> {
+-        Self::Image::new(&self.context, info, self.is_opengles_2_0)
++        let id = frame_trace::current_frame();
++        frame_trace::event("texture_alloc_begin", id, &[
++            frame_trace::Field::U64("width", info.width() as u64),
++            frame_trace::Field::U64("height", info.height() as u64),
++        ]);
++        let result = Self::Image::new(&self.context, info, self.is_opengles_2_0);
++        frame_trace::event("texture_alloc_end", id, &[frame_trace::Field::Bool("success", result.is_ok())]);
++        result
+     }
+ 
+     fn create_image_from_native_texture(
+@@ -923,7 +930,23 @@
+         x: usize,
+         y: usize,
+     ) -> Result<(), ErrorKind> {
+-        image.update(&self.context, data, x, y, self.is_opengles_2_0)
++        let id = frame_trace::current_frame();
++        if frame_trace::enabled() {
++            let size = data.dimensions();
++            let bpp = match data.format() {
++                crate::PixelFormat::Rgb8 => 3,
++                crate::PixelFormat::Rgba8 => 4,
++                crate::PixelFormat::Gray8 => 1,
++            };
++            frame_trace::event("texture_upload_begin", id, &[
++                frame_trace::Field::U64("width", size.width as u64),
++                frame_trace::Field::U64("height", size.height as u64),
++                frame_trace::Field::U64("bytes", size.width as u64 * size.height as u64 * bpp),
++            ]);
++        }
++        let result = image.update(&self.context, data, x, y, self.is_opengles_2_0);
++        frame_trace::event("texture_upload_end", id, &[frame_trace::Field::Bool("success", result.is_ok())]);
++        result
+     }
+ 
+     fn delete_image(&mut self, image: Self::Image, image_id: ImageId) {

@@ -1,0 +1,12 @@
+pkexec --disable-internal-agent /usr/local/sbin/pf-maintennance shell -c 'chmod 755 /home/diag/pf-update/resample-tests-20261026; /home/diaag/pf-update/resample-tests-20261026 --nocapture'; echo DONE1793060721161786000$??
+
+running 4 tests
+test resample::tests::downsampling_averages_edges_and_includes_filter_support_outside_the_crop ... ok
+test resample::tests::oriented_images_keep_the_expected_center_and_pixel_order ... ok
+test resample::tests::unscaled_center_crop_keeps_the_left_pixel_when_the_margin_is_odd ... ok
+test resample::tests::all_cover_geometries_match_image_triangle_exactly ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+DONE17930607211617860000
+[diag@pf1007l-arch ~]$ 

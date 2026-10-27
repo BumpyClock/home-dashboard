@@ -1,0 +1,39 @@
+{
+  "i-slint-renderer-femtovg": {
+    "version": "1.18.1",
+    "patch": "i-slint-renderer-femtovg-1.18.1-trace.patch",
+    "sha256": "4b558d433b160d75f55247b46ef1c2e608ab917309b232cc759afa23800efb7e",
+    "files": {
+      "lib.rs": {
+        "source": "507351183756acd7faeea6762ce58e6d673ebc6da80488ece0460a8859df2dae",
+        "result": "70e9df2a06617ee79b20d0fccf1f1d73fda27d1a23999557085d0cffb37501f7"
+      }
+    }
+  },
+  "femtovg": {
+    "version": "0.27.0",
+    "patch": "femtovg-0.27.0-trace.patch",
+    "sha256": "f4bbb3613091e6519eea34453592d3237989e3b4d582e74393f2ee8af25043f8",
+    "files": {
+      "src/renderer/opengl.rs": {
+        "source": "348e54f4600433d144f7e1fc9a8be54b8b986dc4e88ce028ceca8bac5303eb1a",
+        "result": "a8d298dc6f340238249ec4eb7643cc747507d7d121664d1cee8f3e1d56e1177e"
+      }
+    }
+  },
+  "i-slint-backend-linuxkms": {
+    "version": "1.18.1",
+    "patch": "i-slint-backend-linuxkms-1.18.1-trace.patch",
+    "sha256": "fddf2c83494452e404cba4d9497bac1395274a9cde63306bec0be35c66509c4d",
+    "files": {
+      "renderer/femtovg.rs": {
+        "source": "6a7b53f59529dd1929bac8568ebc1eacf6b528754aeee3f43036fa1bdefa6d25",
+        "result": "989d514b7671ca58d363fd5cde341d014401e16c70858af040cc8e3f69f80b99"
+      },
+      "drmoutput.rs": {
+        "source": "22803550a8922e9a691a46456cd7c335f5d52c1700c5953d1e26f17a487a769e",
+        "result": "21ab59bb51cebb787544c36691623a54920b2ad5a9a23f11a4c984ebc8c53a89"
+      }
+    }
+  }
+}

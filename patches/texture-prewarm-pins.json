@@ -1,0 +1,27 @@
+{
+  "version": "1.18.1",
+  "patch": "i-slint-renderer-femtovg-1.18.1-texture-prewarm.patch",
+  "sha256": "5688ee1c194c8b9f35e74636c6c66ed5bafa4c40d252ee3cf16d1887d80aa3e5",
+  "files": {
+    "images.rs": {
+      "source": "0c54385345b507dd197985249d3d1bb7dee8505f866d1934a917b1be781380d8",
+      "results": [
+        "6094e1f92471671998a7a7aa3bb7081971845bf6678e8b473e53ca90b872bd80"
+      ]
+    },
+    "itemrenderer.rs": {
+      "source": "30ee92fa6c8ce12c21fb7135f3696677131bb252d9ba34b7a5e0079687e3d82b",
+      "results": [
+        "1274624f1b7e32eefd7fe198cc8f44a4ddb85efe0f24cee5747766d925460997",
+        "c539a6b37c4266f5321694f6190e74f498172901d435e21d949bf31a2d65528f"
+      ]
+    },
+    "lib.rs": {
+      "source": "507351183756acd7faeea6762ce58e6d673ebc6da80488ece0460a8859df2dae",
+      "results": [
+        "f4bb81867a6a837c3f44f3ddd2a4a1c4e0f25426875ac7af2fc4651d51fbd688",
+        "f75e6010bc1500a477844d5e97d1c4ebd0e68027e8e6df3e5e282dc666e01c3f"
+      ]
+    }
+  }
+}

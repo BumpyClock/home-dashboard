@@ -40,21 +40,24 @@ export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_RUSTFLAGS='-C target-cpu=corte
 cd "$source_dir"
 image_aa=${PF_FEMTOVG_IMAGE_AA_FIX:-1}
 quarter_turn=${PF_FEMTOVG_QUARTER_TURN_FIX:-1}
-for option in "$image_aa" "$quarter_turn"; do
+render_trace=${PF_RENDER_TRACE:-0}
+texture_prewarm=${PF_TEXTURE_PREWARM:-1}
+for option in "$image_aa" "$quarter_turn" "$render_trace" "$texture_prewarm"; do
     [[ $option == 0 || $option == 1 ]] || { echo 'FemtoVG fix options must be 0 or 1' >&2; exit 1; }
 done
-if [[ $image_aa == 1 || $quarter_turn == 1 ]]; then
+if [[ $image_aa == 1 || $quarter_turn == 1 || $render_trace == 1 || $texture_prewarm == 1 ]]; then
     command -v python3 >/dev/null
     cargo metadata --locked --offline --format-version 1 \
         --filter-platform armv7-unknown-linux-gnueabihf --no-default-features --features frame \
         > "$build_dir/femtovg-metadata.json"
     patched_source=$(python3 "$source_dir/scripts/prepare-femtovg-patch.py" \
         "$source_dir" "$build_dir/femtovg-metadata.json" "$build_dir" \
-        --image-aa "$image_aa" --quarter-turn "$quarter_turn")
+        --image-aa "$image_aa" --quarter-turn "$quarter_turn" --render-trace "$render_trace" --texture-prewarm "$texture_prewarm")
     cd "$patched_source"
     packages=()
-    [[ $image_aa == 0 ]] || packages+=(-p i-slint-renderer-femtovg@1.18.1)
-    [[ $quarter_turn == 0 ]] || packages+=(-p femtovg@0.27.0)
+    [[ $image_aa == 0 && $render_trace == 0 && $texture_prewarm == 0 ]] || packages+=(-p i-slint-renderer-femtovg@1.18.1)
+    [[ $quarter_turn == 0 && $render_trace == 0 ]] || packages+=(-p femtovg@0.27.0)
+    [[ $render_trace == 0 ]] || packages+=(-p i-slint-backend-linuxkms@1.18.1)
     cargo update --offline "${packages[@]}"
 fi
 cargo build --locked --release --target armv7-unknown-linux-gnueabihf --no-default-features --features frame "$@"

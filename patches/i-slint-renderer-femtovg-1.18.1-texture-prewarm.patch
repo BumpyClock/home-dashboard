@@ -1,0 +1,106 @@
+--- a/images.rs
++++ b/images.rs
+@@ -253,11 +253,13 @@
+ // of 1 are drained after flushing the renderer commands to the screen.
+ pub struct TextureCache<R: femtovg::Renderer + TextureImporter>(
+     HashMap<TextureCacheKey, Rc<Texture<R>>>,
++    Vec<(SharedImageBuffer, Rc<Texture<R>>, usize, Option<u64>, bool)>,
+ );
+ 
+ impl<R: femtovg::Renderer + TextureImporter> Default for TextureCache<R> {
+     fn default() -> Self {
++        texture_prewarm::register_renderer();
+-        Self(Default::default())
++        Self(Default::default(), Vec::new())
+     }
+ }
+ 
+@@ -281,6 +283,37 @@
+         })
+     }
+ 
++    /// Prepare RGB images on the render thread while a graphics context is current.
++    pub(crate) fn prepare(&mut self, image: &ImageInner, canvas: &CanvasRc<R>) {
++        let ImageInner::EmbeddedImage { buffer: buffer @ SharedImageBuffer::RGB8(_), .. } = image else { return };
++        if self.1.iter().any(|entry| &entry.0 == buffer) { return; }
++        let bytes = (buffer.width() as usize).saturating_mul(buffer.height() as usize).saturating_mul(4);
++        if bytes == 0 || bytes > texture_prewarm::MAX_TEXTURE_BYTES { return; }
++        while self.1.iter().map(|entry| entry.2).sum::<usize>() + bytes > texture_prewarm::MAX_TEXTURE_BYTES {
++            let evicted = self.1.remove(0);
++            texture_prewarm::trace("evict", evicted.3, evicted.2);
++        }
++        if let Some(texture) = Texture::new_from_image(image, canvas, None, ImageRendering::Smooth, (ImageTiling::None, ImageTiling::None)) {
++            let id = texture_prewarm::trace_id();
++            texture_prewarm::trace("upload", id, bytes);
++            self.1.push((buffer.clone(), texture, bytes, id, false));
++        }
++    }
++
++    pub(crate) fn prepared(&mut self, buffer: &SharedImageBuffer) -> Option<Rc<Texture<R>>> {
++        let Some(index) = self.1.iter().position(|entry| &entry.0 == buffer) else {
++            return None;
++        };
++        let mut entry = self.1.remove(index);
++        if !entry.4 {
++            texture_prewarm::trace("first_use", entry.3, entry.2);
++            entry.4 = true;
++        }
++        let texture = entry.1.clone();
++        self.1.push(entry);
++        Some(texture)
++    }
++
+     pub(crate) fn drain(&mut self) {
+         self.0.retain(|_, cached_image| {
+             // * Retain images that are used by elements, so that they can be effectively
+@@ -297,6 +330,7 @@
+ 
+     pub(crate) fn clear(&mut self) {
+         self.0.clear();
++        self.1.clear();
+     }
+ }
+ 
+--- a/itemrenderer.rs
++++ b/itemrenderer.rs
+@@ -1248,7 +1248,12 @@
+ 
+                 let image_rendering = item.rendering();
+ 
+-                TextureCacheKey::new(
++                let prepared = if image_rendering == ImageRendering::Smooth && tiling == (ImageTiling::None, ImageTiling::None) {
++                    if let ImageInner::EmbeddedImage { buffer, .. } = image_inner {
++                        self.texture_cache.borrow_mut().prepared(buffer)
++                    } else { None }
++                } else { None };
++                prepared.or_else(|| TextureCacheKey::new(
+                     image_inner,
+                     target_size_for_scalable_source,
+                     image_rendering,
+@@ -1268,7 +1273,7 @@
+                         },
+                     )
+                 })
+-                .or_else(|| {
++                ).or_else(|| {
+                     Texture::new_from_image(
+                         image_inner,
+                         &self.canvas,
+--- a/lib.rs
++++ b/lib.rs
+@@ -261,6 +261,15 @@
+                     })?;
+                 }
+ 
++                match texture_prewarm::poll() {
++                    texture_prewarm::Poll::Idle => (),
++                    texture_prewarm::Poll::Deferred => window.request_redraw(),
++                    texture_prewarm::Poll::Ready(image) => {
++                        let inner: &i_slint_core::ImageInner = (&image).into();
++                        self.texture_cache.borrow_mut().prepare(inner, &canvas);
++                    }
++                }
++
+                 self.graphics_cache.clear_cache_if_scale_factor_changed(window);
+                 self.layer_cache.clear_cache_if_scale_factor_changed(window);
+                 self.box_shadow_cache.clear_cache_if_scale_factor_changed(window);

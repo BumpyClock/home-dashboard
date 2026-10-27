@@ -1,0 +1,20 @@
+pkexec --disable-internal-agent /usr/local/sbin/pf-maintennance shell -c 'bash /home/diag/pf-update/deploy-perf-20261026.sh'; echo DONE17933061265820814000$?
+DEPLOYED 48b37fba10eed2fdb98d6268b55ef5517a473f6bca1e7aa7eb02db56ce2419f2 PID 11839
+ROLLBACK /opt/photoframe-proto/releases/879bd8b1
+c5996d3ede89abb8d4a4421b9041c305a8e448b8015d173bc2b5fefa4813d053  /var/lib/photoframe-proto/settings.json
+ActiveState=active
+SubState=running
+MainPID=11839
+NRestarts=0
+ExecMainStartTimestamp=Mon 2026-10-26 17:34:29 PDT
+Oct 26 17:34:29 pf1007l-arch systemd[1]: Starting Family Frame Slint dashboard...
+Oct 26 17:34:29 pf1007l-arch systemd[1]: Started Family Frame Slint dashboard.
+Oct 26 17:34:30 pf1007l-arch photoframe_proto[11839]: Using FemtoVG OpenGL renderer
+Oct 26 17:34:30 pf1007l-arch photoframe_proto[11839]: Rendering at 800x1280
+Oct 26 17:34:30 pf1007l-arch photoframe_proto[11839]: [display] observing 1 input devices; idle timeout: Some(180s); night configured: false
+Oct 26 17:34:30 pf1007l-arch photoframe_proto[11839]: [display] active brightness: 65%
+Oct 26 17:34:30 pf1007l-arch photoframe_proto[11839]: [orientation] calibrated sc7a20 at 50 Hz; sampling poses at 2 Hz
+Oct 26 17:34:30 pf1007l-arch photoframe_proto[11839]: [weather] fetch failed, keeping previous weather: io: failed to lookup address information: Temporary failure in name resolution
+Oct 26 17:34:31 pf1007l-arch photoframe_proto[11839]: [orientation] UI rotation: 180 degrees
+DONE17930612658208140000
+[diag@pf1007l-arch ~]$ 

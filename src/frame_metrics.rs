@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 use slint::{ComponentHandle, GraphicsAPI, Model, RenderingState, Timer, TimerMode};
 
-use crate::{AppWindow, Frame};
+use crate::{AppWindow, Frame, Saver};
 
 const MAX_FRAMES: usize = 18_000;
 const WARMUP_SECONDS: u64 = 30;
@@ -20,6 +20,7 @@ struct Sample {
     phase: &'static str,
     tab: i32,
     photo: i32,
+    animation_active: bool,
 }
 
 struct Capture {
@@ -153,7 +154,8 @@ fn perform(
 }
 
 pub fn install(app: &AppWindow) -> Option<MetricsGuard> {
-    let output = PathBuf::from(std::env::var_os("FRAME_METRICS_OUTPUT")?);
+    let output = std::env::var_os("FRAME_METRICS_OUTPUT")?;
+    let output = PathBuf::from(output);
     if !output.is_absolute() {
         eprintln!("[metrics] FRAME_METRICS_OUTPUT must be an absolute external path");
         return None;
@@ -200,6 +202,17 @@ pub fn install(app: &AppWindow) -> Option<MetricsGuard> {
     }));
     let (weak, render_capture) = (app.as_weak(), capture.clone());
     if let Err(error) = app.window().set_rendering_notifier(move |state, api| {
+        match state {
+            RenderingState::BeforeRendering => frame_trace::event(
+                "render_cpu_callback_start",
+                frame_trace::current_frame(),
+                &[],
+            ),
+            RenderingState::AfterRendering => {
+                frame_trace::event("render_cpu_callback_end", frame_trace::current_frame(), &[])
+            }
+            _ => {}
+        }
         let mut capture = render_capture.borrow_mut();
         if !capture.gl_query_attempted
             && matches!(
@@ -227,6 +240,7 @@ pub fn install(app: &AppWindow) -> Option<MetricsGuard> {
                     return;
                 }
                 let f = app.global::<Frame>();
+                let saver = app.global::<Saver>();
                 capture.pending = Some(Sample {
                     start_us,
                     start_interval_us: interval,
@@ -234,6 +248,8 @@ pub fn install(app: &AppWindow) -> Option<MetricsGuard> {
                     phase: capture.phase,
                     tab: f.get_active_tab(),
                     photo: f.get_photo_index(),
+                    animation_active: saver.get_card_previous() >= 0
+                        || saver.get_full_previous() >= 0,
                 });
             }
             RenderingState::AfterRendering => {
@@ -323,10 +339,10 @@ pub fn install(app: &AppWindow) -> Option<MetricsGuard> {
             let samples: Vec<_> = frames.into_iter().map(|s| json!({
                 "start_us": s.start_us, "start_interval_us": s.start_interval_us,
                 "renderer_callback_wall_us": s.renderer_callback_wall_us,
-                "phase": s.phase, "tab": s.tab, "photo": s.photo,
+                "phase": s.phase, "tab": s.tab, "photo": s.photo, "animation_active": s.animation_active,
             })).collect();
             let report = json!({
-                "schema": 2, "benchmark": benchmark, "requested_seconds": seconds,
+                "schema": 3, "benchmark": benchmark, "requested_seconds": seconds,
                 "valid": valid,
                 "invalid_reason": invalid_reason,
                 "warmup_seconds": if benchmark { WARMUP_SECONDS } else { 0 },

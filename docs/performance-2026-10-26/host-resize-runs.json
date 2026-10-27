@@ -1,0 +1,1082 @@
+[
+  {
+    "run": 1,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/family-beach.jpg",
+    "ms": 32.38,
+    "peak_bytes": 40148496,
+    "checksum": "86565f04cb261a8e"
+  },
+  {
+    "run": 1,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/coast-sunset.jpg",
+    "ms": 25.635,
+    "peak_bytes": 36075554,
+    "checksum": "13a6268fa8934646"
+  },
+  {
+    "run": 1,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/family-kitchen.jpg",
+    "ms": 32.467,
+    "peak_bytes": 41507856,
+    "checksum": "501211f3d62abd98"
+  },
+  {
+    "run": 1,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/kids-leaves.jpg",
+    "ms": 28.248,
+    "peak_bytes": 40044816,
+    "checksum": "72b34c9ac03c249f"
+  },
+  {
+    "run": 1,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/palolem.jpg",
+    "ms": 26.953,
+    "peak_bytes": 36098576,
+    "checksum": "a1544d7677092237"
+  },
+  {
+    "run": 1,
+    "kind": "resize",
+    "variant": "old",
+    "input": "synthetic2000x1500",
+    "ms": 32.477,
+    "peak_bytes": 47514896,
+    "checksum": "a9515f4d5b2a5d9f"
+  },
+  {
+    "run": 1,
+    "kind": "resize",
+    "variant": "old",
+    "input": "panorama6000x1200",
+    "ms": 108.047,
+    "peak_bytes": 147575059,
+    "checksum": "c46be78cdf7dedf8"
+  },
+  {
+    "run": 1,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/family-beach.jpg",
+    "ms": 42.149,
+    "peak_bytes": 45265296,
+    "checksum": "86565f04cb261a8e"
+  },
+  {
+    "run": 1,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/coast-sunset.jpg",
+    "ms": 50.457,
+    "peak_bytes": 47595554,
+    "checksum": "13a6268fa8934646"
+  },
+  {
+    "run": 1,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/family-kitchen.jpg",
+    "ms": 39.784,
+    "peak_bytes": 45827856,
+    "checksum": "501211f3d62abd98"
+  },
+  {
+    "run": 1,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/kids-leaves.jpg",
+    "ms": 42.273,
+    "peak_bytes": 45233616,
+    "checksum": "72b34c9ac03c249f"
+  },
+  {
+    "run": 1,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/palolem.jpg",
+    "ms": 35.39,
+    "peak_bytes": 39991976,
+    "checksum": "a1544d7677092237"
+  },
+  {
+    "run": 1,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/family-beach.jpg",
+    "ms": 4.087,
+    "peak_bytes": 3115228,
+    "checksum": "86565f04cb261a8e"
+  },
+  {
+    "run": 1,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/coast-sunset.jpg",
+    "ms": 7.927,
+    "peak_bytes": 3130828,
+    "checksum": "13a6268fa8934646"
+  },
+  {
+    "run": 1,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/family-kitchen.jpg",
+    "ms": 3.487,
+    "peak_bytes": 3113976,
+    "checksum": "501211f3d62abd98"
+  },
+  {
+    "run": 1,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/kids-leaves.jpg",
+    "ms": 3.731,
+    "peak_bytes": 3115324,
+    "checksum": "72b34c9ac03c249f"
+  },
+  {
+    "run": 1,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/palolem.jpg",
+    "ms": 3.623,
+    "peak_bytes": 3114196,
+    "checksum": "a1544d7677092237"
+  },
+  {
+    "run": 1,
+    "kind": "resize",
+    "variant": "new",
+    "input": "synthetic2000x1500",
+    "ms": 4.883,
+    "peak_bytes": 3119576,
+    "checksum": "a9515f4d5b2a5d9f"
+  },
+  {
+    "run": 1,
+    "kind": "resize",
+    "variant": "new",
+    "input": "panorama6000x1200",
+    "ms": 4.006,
+    "peak_bytes": 3116232,
+    "checksum": "c46be78cdf7dedf8"
+  },
+  {
+    "run": 1,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/family-beach.jpg",
+    "ms": 19.08,
+    "peak_bytes": 11302554,
+    "checksum": "86565f04cb261a8e"
+  },
+  {
+    "run": 1,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/coast-sunset.jpg",
+    "ms": 41.568,
+    "peak_bytes": 24859168,
+    "checksum": "13a6268fa8934646"
+  },
+  {
+    "run": 1,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/family-kitchen.jpg",
+    "ms": 16.381,
+    "peak_bytes": 9284736,
+    "checksum": "501211f3d62abd98"
+  },
+  {
+    "run": 1,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/kids-leaves.jpg",
+    "ms": 22.839,
+    "peak_bytes": 11577214,
+    "checksum": "72b34c9ac03c249f"
+  },
+  {
+    "run": 1,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/palolem.jpg",
+    "ms": 19.701,
+    "peak_bytes": 8473582,
+    "checksum": "a1544d7677092237"
+  },
+  {
+    "run": 2,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/family-beach.jpg",
+    "ms": 31.074,
+    "peak_bytes": 40148496,
+    "checksum": "86565f04cb261a8e"
+  },
+  {
+    "run": 2,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/coast-sunset.jpg",
+    "ms": 24.651,
+    "peak_bytes": 36075554,
+    "checksum": "13a6268fa8934646"
+  },
+  {
+    "run": 2,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/family-kitchen.jpg",
+    "ms": 33.261,
+    "peak_bytes": 41507856,
+    "checksum": "501211f3d62abd98"
+  },
+  {
+    "run": 2,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/kids-leaves.jpg",
+    "ms": 27.962,
+    "peak_bytes": 40044816,
+    "checksum": "72b34c9ac03c249f"
+  },
+  {
+    "run": 2,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/palolem.jpg",
+    "ms": 27.052,
+    "peak_bytes": 36098576,
+    "checksum": "a1544d7677092237"
+  },
+  {
+    "run": 2,
+    "kind": "resize",
+    "variant": "old",
+    "input": "synthetic2000x1500",
+    "ms": 30.828,
+    "peak_bytes": 47514896,
+    "checksum": "a9515f4d5b2a5d9f"
+  },
+  {
+    "run": 2,
+    "kind": "resize",
+    "variant": "old",
+    "input": "panorama6000x1200",
+    "ms": 101.474,
+    "peak_bytes": 147575059,
+    "checksum": "c46be78cdf7dedf8"
+  },
+  {
+    "run": 2,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/family-beach.jpg",
+    "ms": 43.313,
+    "peak_bytes": 45265296,
+    "checksum": "86565f04cb261a8e"
+  },
+  {
+    "run": 2,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/coast-sunset.jpg",
+    "ms": 51.087,
+    "peak_bytes": 47595554,
+    "checksum": "13a6268fa8934646"
+  },
+  {
+    "run": 2,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/family-kitchen.jpg",
+    "ms": 39.543,
+    "peak_bytes": 45827856,
+    "checksum": "501211f3d62abd98"
+  },
+  {
+    "run": 2,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/kids-leaves.jpg",
+    "ms": 40.907,
+    "peak_bytes": 45233616,
+    "checksum": "72b34c9ac03c249f"
+  },
+  {
+    "run": 2,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/palolem.jpg",
+    "ms": 35.921,
+    "peak_bytes": 39991976,
+    "checksum": "a1544d7677092237"
+  },
+  {
+    "run": 2,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/family-beach.jpg",
+    "ms": 3.937,
+    "peak_bytes": 3115228,
+    "checksum": "86565f04cb261a8e"
+  },
+  {
+    "run": 2,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/coast-sunset.jpg",
+    "ms": 7.75,
+    "peak_bytes": 3130828,
+    "checksum": "13a6268fa8934646"
+  },
+  {
+    "run": 2,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/family-kitchen.jpg",
+    "ms": 3.584,
+    "peak_bytes": 3113976,
+    "checksum": "501211f3d62abd98"
+  },
+  {
+    "run": 2,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/kids-leaves.jpg",
+    "ms": 3.896,
+    "peak_bytes": 3115324,
+    "checksum": "72b34c9ac03c249f"
+  },
+  {
+    "run": 2,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/palolem.jpg",
+    "ms": 3.543,
+    "peak_bytes": 3114196,
+    "checksum": "a1544d7677092237"
+  },
+  {
+    "run": 2,
+    "kind": "resize",
+    "variant": "new",
+    "input": "synthetic2000x1500",
+    "ms": 4.908,
+    "peak_bytes": 3119576,
+    "checksum": "a9515f4d5b2a5d9f"
+  },
+  {
+    "run": 2,
+    "kind": "resize",
+    "variant": "new",
+    "input": "panorama6000x1200",
+    "ms": 4.087,
+    "peak_bytes": 3116232,
+    "checksum": "c46be78cdf7dedf8"
+  },
+  {
+    "run": 2,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/family-beach.jpg",
+    "ms": 17.967,
+    "peak_bytes": 11302554,
+    "checksum": "86565f04cb261a8e"
+  },
+  {
+    "run": 2,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/coast-sunset.jpg",
+    "ms": 36.539,
+    "peak_bytes": 24859168,
+    "checksum": "13a6268fa8934646"
+  },
+  {
+    "run": 2,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/family-kitchen.jpg",
+    "ms": 11.257,
+    "peak_bytes": 9284736,
+    "checksum": "501211f3d62abd98"
+  },
+  {
+    "run": 2,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/kids-leaves.jpg",
+    "ms": 18.211,
+    "peak_bytes": 11577214,
+    "checksum": "72b34c9ac03c249f"
+  },
+  {
+    "run": 2,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/palolem.jpg",
+    "ms": 11.693,
+    "peak_bytes": 8473582,
+    "checksum": "a1544d7677092237"
+  },
+  {
+    "run": 3,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/family-beach.jpg",
+    "ms": 29.862,
+    "peak_bytes": 40148496,
+    "checksum": "86565f04cb261a8e"
+  },
+  {
+    "run": 3,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/coast-sunset.jpg",
+    "ms": 24.291,
+    "peak_bytes": 36075554,
+    "checksum": "13a6268fa8934646"
+  },
+  {
+    "run": 3,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/family-kitchen.jpg",
+    "ms": 32.164,
+    "peak_bytes": 41507856,
+    "checksum": "501211f3d62abd98"
+  },
+  {
+    "run": 3,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/kids-leaves.jpg",
+    "ms": 27.869,
+    "peak_bytes": 40044816,
+    "checksum": "72b34c9ac03c249f"
+  },
+  {
+    "run": 3,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/palolem.jpg",
+    "ms": 27.063,
+    "peak_bytes": 36098576,
+    "checksum": "a1544d7677092237"
+  },
+  {
+    "run": 3,
+    "kind": "resize",
+    "variant": "old",
+    "input": "synthetic2000x1500",
+    "ms": 33.565,
+    "peak_bytes": 47514896,
+    "checksum": "a9515f4d5b2a5d9f"
+  },
+  {
+    "run": 3,
+    "kind": "resize",
+    "variant": "old",
+    "input": "panorama6000x1200",
+    "ms": 109.019,
+    "peak_bytes": 147575059,
+    "checksum": "c46be78cdf7dedf8"
+  },
+  {
+    "run": 3,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/family-beach.jpg",
+    "ms": 43.184,
+    "peak_bytes": 45265296,
+    "checksum": "86565f04cb261a8e"
+  },
+  {
+    "run": 3,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/coast-sunset.jpg",
+    "ms": 52.705,
+    "peak_bytes": 47595554,
+    "checksum": "13a6268fa8934646"
+  },
+  {
+    "run": 3,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/family-kitchen.jpg",
+    "ms": 38.65,
+    "peak_bytes": 45827856,
+    "checksum": "501211f3d62abd98"
+  },
+  {
+    "run": 3,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/kids-leaves.jpg",
+    "ms": 42.302,
+    "peak_bytes": 45233616,
+    "checksum": "72b34c9ac03c249f"
+  },
+  {
+    "run": 3,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/palolem.jpg",
+    "ms": 34.351,
+    "peak_bytes": 39991976,
+    "checksum": "a1544d7677092237"
+  },
+  {
+    "run": 3,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/family-beach.jpg",
+    "ms": 3.824,
+    "peak_bytes": 3115228,
+    "checksum": "86565f04cb261a8e"
+  },
+  {
+    "run": 3,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/coast-sunset.jpg",
+    "ms": 7.712,
+    "peak_bytes": 3130828,
+    "checksum": "13a6268fa8934646"
+  },
+  {
+    "run": 3,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/family-kitchen.jpg",
+    "ms": 3.719,
+    "peak_bytes": 3113976,
+    "checksum": "501211f3d62abd98"
+  },
+  {
+    "run": 3,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/kids-leaves.jpg",
+    "ms": 3.859,
+    "peak_bytes": 3115324,
+    "checksum": "72b34c9ac03c249f"
+  },
+  {
+    "run": 3,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/palolem.jpg",
+    "ms": 3.663,
+    "peak_bytes": 3114196,
+    "checksum": "a1544d7677092237"
+  },
+  {
+    "run": 3,
+    "kind": "resize",
+    "variant": "new",
+    "input": "synthetic2000x1500",
+    "ms": 5.1,
+    "peak_bytes": 3119576,
+    "checksum": "a9515f4d5b2a5d9f"
+  },
+  {
+    "run": 3,
+    "kind": "resize",
+    "variant": "new",
+    "input": "panorama6000x1200",
+    "ms": 4.263,
+    "peak_bytes": 3116232,
+    "checksum": "c46be78cdf7dedf8"
+  },
+  {
+    "run": 3,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/family-beach.jpg",
+    "ms": 17.846,
+    "peak_bytes": 11302554,
+    "checksum": "86565f04cb261a8e"
+  },
+  {
+    "run": 3,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/coast-sunset.jpg",
+    "ms": 37.235,
+    "peak_bytes": 24859168,
+    "checksum": "13a6268fa8934646"
+  },
+  {
+    "run": 3,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/family-kitchen.jpg",
+    "ms": 11.405,
+    "peak_bytes": 9284736,
+    "checksum": "501211f3d62abd98"
+  },
+  {
+    "run": 3,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/kids-leaves.jpg",
+    "ms": 19.462,
+    "peak_bytes": 11577214,
+    "checksum": "72b34c9ac03c249f"
+  },
+  {
+    "run": 3,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/palolem.jpg",
+    "ms": 11.537,
+    "peak_bytes": 8473582,
+    "checksum": "a1544d7677092237"
+  },
+  {
+    "run": 4,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/family-beach.jpg",
+    "ms": 32.186,
+    "peak_bytes": 40148496,
+    "checksum": "86565f04cb261a8e"
+  },
+  {
+    "run": 4,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/coast-sunset.jpg",
+    "ms": 25.109,
+    "peak_bytes": 36075554,
+    "checksum": "13a6268fa8934646"
+  },
+  {
+    "run": 4,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/family-kitchen.jpg",
+    "ms": 33.259,
+    "peak_bytes": 41507856,
+    "checksum": "501211f3d62abd98"
+  },
+  {
+    "run": 4,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/kids-leaves.jpg",
+    "ms": 30.386,
+    "peak_bytes": 40044816,
+    "checksum": "72b34c9ac03c249f"
+  },
+  {
+    "run": 4,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/palolem.jpg",
+    "ms": 27.39,
+    "peak_bytes": 36098576,
+    "checksum": "a1544d7677092237"
+  },
+  {
+    "run": 4,
+    "kind": "resize",
+    "variant": "old",
+    "input": "synthetic2000x1500",
+    "ms": 37.117,
+    "peak_bytes": 47514896,
+    "checksum": "a9515f4d5b2a5d9f"
+  },
+  {
+    "run": 4,
+    "kind": "resize",
+    "variant": "old",
+    "input": "panorama6000x1200",
+    "ms": 113.623,
+    "peak_bytes": 147575059,
+    "checksum": "c46be78cdf7dedf8"
+  },
+  {
+    "run": 4,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/family-beach.jpg",
+    "ms": 43.899,
+    "peak_bytes": 45265296,
+    "checksum": "86565f04cb261a8e"
+  },
+  {
+    "run": 4,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/coast-sunset.jpg",
+    "ms": 58.588,
+    "peak_bytes": 47595554,
+    "checksum": "13a6268fa8934646"
+  },
+  {
+    "run": 4,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/family-kitchen.jpg",
+    "ms": 44.779,
+    "peak_bytes": 45827856,
+    "checksum": "501211f3d62abd98"
+  },
+  {
+    "run": 4,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/kids-leaves.jpg",
+    "ms": 46.789,
+    "peak_bytes": 45233616,
+    "checksum": "72b34c9ac03c249f"
+  },
+  {
+    "run": 4,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/palolem.jpg",
+    "ms": 37.018,
+    "peak_bytes": 39991976,
+    "checksum": "a1544d7677092237"
+  },
+  {
+    "run": 4,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/family-beach.jpg",
+    "ms": 4.445,
+    "peak_bytes": 3115228,
+    "checksum": "86565f04cb261a8e"
+  },
+  {
+    "run": 4,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/coast-sunset.jpg",
+    "ms": 7.567,
+    "peak_bytes": 3130828,
+    "checksum": "13a6268fa8934646"
+  },
+  {
+    "run": 4,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/family-kitchen.jpg",
+    "ms": 3.952,
+    "peak_bytes": 3113976,
+    "checksum": "501211f3d62abd98"
+  },
+  {
+    "run": 4,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/kids-leaves.jpg",
+    "ms": 3.782,
+    "peak_bytes": 3115324,
+    "checksum": "72b34c9ac03c249f"
+  },
+  {
+    "run": 4,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/palolem.jpg",
+    "ms": 3.714,
+    "peak_bytes": 3114196,
+    "checksum": "a1544d7677092237"
+  },
+  {
+    "run": 4,
+    "kind": "resize",
+    "variant": "new",
+    "input": "synthetic2000x1500",
+    "ms": 5.045,
+    "peak_bytes": 3119576,
+    "checksum": "a9515f4d5b2a5d9f"
+  },
+  {
+    "run": 4,
+    "kind": "resize",
+    "variant": "new",
+    "input": "panorama6000x1200",
+    "ms": 4.193,
+    "peak_bytes": 3116232,
+    "checksum": "c46be78cdf7dedf8"
+  },
+  {
+    "run": 4,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/family-beach.jpg",
+    "ms": 17.913,
+    "peak_bytes": 11302554,
+    "checksum": "86565f04cb261a8e"
+  },
+  {
+    "run": 4,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/coast-sunset.jpg",
+    "ms": 36.96,
+    "peak_bytes": 24859168,
+    "checksum": "13a6268fa8934646"
+  },
+  {
+    "run": 4,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/family-kitchen.jpg",
+    "ms": 11.839,
+    "peak_bytes": 9284736,
+    "checksum": "501211f3d62abd98"
+  },
+  {
+    "run": 4,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/kids-leaves.jpg",
+    "ms": 20.169,
+    "peak_bytes": 11577214,
+    "checksum": "72b34c9ac03c249f"
+  },
+  {
+    "run": 4,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/palolem.jpg",
+    "ms": 14.005,
+    "peak_bytes": 8473582,
+    "checksum": "a1544d7677092237"
+  },
+  {
+    "run": 5,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/family-beach.jpg",
+    "ms": 30.863,
+    "peak_bytes": 40148496,
+    "checksum": "86565f04cb261a8e"
+  },
+  {
+    "run": 5,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/coast-sunset.jpg",
+    "ms": 25.0,
+    "peak_bytes": 36075554,
+    "checksum": "13a6268fa8934646"
+  },
+  {
+    "run": 5,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/family-kitchen.jpg",
+    "ms": 32.818,
+    "peak_bytes": 41507856,
+    "checksum": "501211f3d62abd98"
+  },
+  {
+    "run": 5,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/kids-leaves.jpg",
+    "ms": 28.155,
+    "peak_bytes": 40044816,
+    "checksum": "72b34c9ac03c249f"
+  },
+  {
+    "run": 5,
+    "kind": "resize",
+    "variant": "old",
+    "input": "assets/photos/palolem.jpg",
+    "ms": 27.638,
+    "peak_bytes": 36098576,
+    "checksum": "a1544d7677092237"
+  },
+  {
+    "run": 5,
+    "kind": "resize",
+    "variant": "old",
+    "input": "synthetic2000x1500",
+    "ms": 31.367,
+    "peak_bytes": 47514896,
+    "checksum": "a9515f4d5b2a5d9f"
+  },
+  {
+    "run": 5,
+    "kind": "resize",
+    "variant": "old",
+    "input": "panorama6000x1200",
+    "ms": 107.605,
+    "peak_bytes": 147575059,
+    "checksum": "c46be78cdf7dedf8"
+  },
+  {
+    "run": 5,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/family-beach.jpg",
+    "ms": 42.878,
+    "peak_bytes": 45265296,
+    "checksum": "86565f04cb261a8e"
+  },
+  {
+    "run": 5,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/coast-sunset.jpg",
+    "ms": 51.479,
+    "peak_bytes": 47595554,
+    "checksum": "13a6268fa8934646"
+  },
+  {
+    "run": 5,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/family-kitchen.jpg",
+    "ms": 41.302,
+    "peak_bytes": 45827856,
+    "checksum": "501211f3d62abd98"
+  },
+  {
+    "run": 5,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/kids-leaves.jpg",
+    "ms": 44.623,
+    "peak_bytes": 45233616,
+    "checksum": "72b34c9ac03c249f"
+  },
+  {
+    "run": 5,
+    "kind": "decode_resize",
+    "variant": "old",
+    "input": "assets/photos/palolem.jpg",
+    "ms": 38.108,
+    "peak_bytes": 39991976,
+    "checksum": "a1544d7677092237"
+  },
+  {
+    "run": 5,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/family-beach.jpg",
+    "ms": 3.945,
+    "peak_bytes": 3115228,
+    "checksum": "86565f04cb261a8e"
+  },
+  {
+    "run": 5,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/coast-sunset.jpg",
+    "ms": 7.781,
+    "peak_bytes": 3130828,
+    "checksum": "13a6268fa8934646"
+  },
+  {
+    "run": 5,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/family-kitchen.jpg",
+    "ms": 3.758,
+    "peak_bytes": 3113976,
+    "checksum": "501211f3d62abd98"
+  },
+  {
+    "run": 5,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/kids-leaves.jpg",
+    "ms": 3.788,
+    "peak_bytes": 3115324,
+    "checksum": "72b34c9ac03c249f"
+  },
+  {
+    "run": 5,
+    "kind": "resize",
+    "variant": "new",
+    "input": "assets/photos/palolem.jpg",
+    "ms": 4.077,
+    "peak_bytes": 3114196,
+    "checksum": "a1544d7677092237"
+  },
+  {
+    "run": 5,
+    "kind": "resize",
+    "variant": "new",
+    "input": "synthetic2000x1500",
+    "ms": 4.939,
+    "peak_bytes": 3119576,
+    "checksum": "a9515f4d5b2a5d9f"
+  },
+  {
+    "run": 5,
+    "kind": "resize",
+    "variant": "new",
+    "input": "panorama6000x1200",
+    "ms": 4.037,
+    "peak_bytes": 3116232,
+    "checksum": "c46be78cdf7dedf8"
+  },
+  {
+    "run": 5,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/family-beach.jpg",
+    "ms": 19.823,
+    "peak_bytes": 11302554,
+    "checksum": "86565f04cb261a8e"
+  },
+  {
+    "run": 5,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/coast-sunset.jpg",
+    "ms": 39.455,
+    "peak_bytes": 24859168,
+    "checksum": "13a6268fa8934646"
+  },
+  {
+    "run": 5,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/family-kitchen.jpg",
+    "ms": 14.114,
+    "peak_bytes": 9284736,
+    "checksum": "501211f3d62abd98"
+  },
+  {
+    "run": 5,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/kids-leaves.jpg",
+    "ms": 22.284,
+    "peak_bytes": 11577214,
+    "checksum": "72b34c9ac03c249f"
+  },
+  {
+    "run": 5,
+    "kind": "decode_resize",
+    "variant": "new",
+    "input": "assets/photos/palolem.jpg",
+    "ms": 15.867,
+    "peak_bytes": 8473582,
+    "checksum": "a1544d7677092237"
+  }
+]

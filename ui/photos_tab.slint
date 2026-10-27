@@ -25,6 +25,7 @@ export component PhotosScreen inherits Rectangle {
     function report() {
         Saver.grid-first = first;
         Saver.grid-end = end;
+        Frame.trace-grid(0, first, end, max(0, Math.floor(-scroll.offset / pitch)) * cols, min(Frame.photos.length, (Math.floor((-scroll.offset + scroll.height) / pitch) + 1) * cols), false);
     }
     changed first => { report(); }
     changed end => { report(); }
@@ -80,6 +81,9 @@ export component PhotosScreen inherits Rectangle {
                 height: Frame.photos.length > 0 ? Math.ceil(Frame.photos.length / cols) * pitch + pad : scroll.height;
                 for slot[j] in root.pool-size: Rectangle {
                     property <int> photo-index: root.first + Math.mod(j + root.pool-size - Math.mod(root.first, root.pool-size), root.pool-size);
+                    property <bool> thumbnail-ready: Frame.photos[photo-index].thumb.width > 0;
+                    changed photo-index => { Frame.trace-grid(1, j, photo-index, root.first, root.end, thumbnail-ready); }
+                    changed thumbnail-ready => { Frame.trace-grid(2, j, photo-index, root.first, root.end, thumbnail-ready); }
                     visible: photo-index < root.end;
                     x: pad + Math.mod(photo-index, cols) * pitch;
                     y: Math.floor(photo-index / cols) * pitch;

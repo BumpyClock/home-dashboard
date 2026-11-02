@@ -1,0 +1,15 @@
+{
+  "connection": {
+    "kind": "console",
+    "port": "/dev/cu.usbmodemXXXX",
+    "username": "diag",
+    "password_env": "FRAME_SERIAL_PASSWORD"
+  },
+  "interval_seconds": 300,
+  "calendar": {
+    "days": 7,
+    "sources": [
+      { "kind": "mcporter_calendar", "id": "work", "server": "MicrosoftCalendar" }
+    ]
+  }
+}

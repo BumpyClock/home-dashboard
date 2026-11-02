@@ -3,7 +3,13 @@ name = "photoframe_proto"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+members = ["host-sync", "host-sync/calendar-sync", "host-sync/host-state", "host-sync/host-command"]
+resolver = "2"
+
 [dependencies]
+calendar-sync = { path = "host-sync/calendar-sync" }
+host-state = { path = "host-sync/host-state" }
 frame-trace = { path = "instrumentation/frame-trace" }
 texture-prewarm = { path = "renderer/texture-prewarm" }
 slint = { version = "1.18", default-features = false, features = ["std", "compat-1-18", "renderer-femtovg"] }
@@ -15,6 +21,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg"] }
 jpeg-decoder = { version = "0.3.2", default-features = false }
 
 [dev-dependencies]
+tempfile = "3"
 texture-prewarm = { path = "renderer/texture-prewarm", features = ["renderer"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]

@@ -13,6 +13,7 @@ Environment=SLINT_BACKEND=linuxkms-femtovg
 Environment=GALLIUM_DRIVER=lima
 Environment=FRAME_PHOTOS=/var/lib/photoframe-proto/photos
 Environment=FRAME_SETTINGS=/var/lib/photoframe-proto/settings.json
+Environment=FRAME_CALENDAR_HOST=/home/diag/.local/share/family-frame/calendar-host.json
 Environment=FRAME_THUMB_CACHE=/var/cache/photoframe-proto/thumbs
 CacheDirectory=photoframe-proto
 ExecStart=/opt/photoframe-proto/current/photoframe_proto

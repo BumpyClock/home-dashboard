@@ -1,4 +1,8 @@
 mod calendar;
+#[cfg(all(test, feature = "desktop"))]
+mod calendar_render_tests;
+#[cfg(all(test, feature = "desktop"))]
+mod calendar_ui_tests;
 #[cfg(any(test, all(feature = "frame", target_os = "linux")))]
 mod display_power;
 mod frame_metrics;
@@ -16,11 +20,13 @@ mod settings;
 mod shutdown;
 mod weather;
 
-use calendar::{CalendarSource, DemoCalendar, Event};
-use chrono::{Datelike, Duration as CDur, NaiveDateTime, Timelike, Utc};
+use calendar::{Calendar, Event};
+use chrono::{
+    DateTime, Datelike, Duration as CDur, NaiveDate, NaiveDateTime, TimeZone, Timelike, Utc,
+};
 
 use household::PEOPLE;
-use refresh::{same_agenda, same_chore, sync, sync_by, until_next_minute};
+use refresh::{same_agenda, same_calendar_day, same_chore, sync, sync_by, until_next_minute};
 use settings::Settings;
 use slint::{Color, ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel};
 use std::cell::{Cell, RefCell};
@@ -78,6 +84,7 @@ struct Models {
     agenda_past: Rc<VecModel<AgendaRow>>,
     agenda_current: Rc<VecModel<AgendaRow>>,
     tomorrow: Rc<VecModel<MiniEvent>>,
+    calendar_days: Rc<VecModel<CalendarDay>>,
     list: Rc<VecModel<ListItem>>,
     chores: Rc<VecModel<ChoreRow>>,
 }
@@ -86,7 +93,7 @@ struct State {
     settings: Cell<Settings>,
     chores: RefCell<Vec<household::Chore>>,
     list: RefCell<Vec<household::ListEntry>>,
-    calendar: Box<dyn CalendarSource>,
+    calendar: Calendar,
     models: Models,
     screensaver: RefCell<Option<Rc<screensaver::Guard>>>,
 }
@@ -125,44 +132,72 @@ fn refresh_clock(app: &AppWindow, st: &State) {
     );
 }
 
+fn event_time(e: &Event, clock24: bool) -> String {
+    if e.is_all_day() {
+        "All day".into()
+    } else {
+        fmt_time(e.local_start(), clock24)
+    }
+}
+
 fn agenda_row(e: &Event, clock24: bool, next: bool, past: bool) -> AgendaRow {
-    let range = match e.end {
-        Some(end) => format!(
+    let range = if e.is_all_day() {
+        "All day".into()
+    } else {
+        format!(
             "{} – {}",
-            fmt_time(e.start, clock24),
-            fmt_time(end, clock24)
-        ),
-        None => fmt_time(e.start, clock24),
+            fmt_time(e.local_start(), clock24),
+            fmt_time(e.local_end(), clock24)
+        )
     };
-    let people: Vec<Avatar> = e
-        .people
-        .iter()
-        .map(|&p| Avatar {
-            initial: s(p.person().initial),
-            tint: c(p.person().color),
-        })
-        .collect();
     AgendaRow {
-        time: s(fmt_time(e.start, clock24)),
+        time: s(event_time(e, clock24)),
         title: s(&e.title),
         meta: s(if e.detail.is_empty() {
             range
         } else {
             format!("{} · {range}", e.detail)
         }),
-        people: ModelRc::new(VecModel::from(people)),
+        people: ModelRc::default(),
         next,
         past,
     }
 }
 
 fn refresh_calendar(app: &AppWindow, st: &State) {
+    refresh_calendar_at(app, st, calendar_now());
+}
+
+fn refresh_calendar_at(app: &AppWindow, st: &State, instant: DateTime<Utc>) {
     let f = app.global::<Frame>();
-    let now = now();
+    let now = instant.with_timezone(&settings::zone()).naive_local();
     let clock24 = st.settings.get().clock24;
+    st.calendar
+        .set_hide_when_locked(st.settings.get().hide_host_calendar_when_locked);
+    let hidden = st.calendar.host_hidden();
+    if f.get_host_calendar_hidden() != hidden {
+        eprintln!(
+            "[calendar] Host data {} by privacy setting",
+            if hidden { "hidden" } else { "visible" }
+        );
+    }
+    set_changed!(
+        f,
+        get_host_calendar_hidden,
+        set_host_calendar_hidden,
+        hidden
+    );
+    set_changed!(
+        f,
+        get_host_calendar_privacy,
+        set_host_calendar_privacy,
+        s(st.calendar.privacy_message())
+    );
+    let connected = st.calendar.has_snapshot();
     let today = now.date();
-    let events = st.calendar.events_on(today);
-    let tomorrow = st.calendar.events_on(today + CDur::days(1));
+    let agenda = st.calendar.home(instant);
+    let event_count = agenda.past.len() + agenda.current.len();
+    let tomorrow = &agenda.tomorrow;
 
     let greet = match now.hour() {
         0..=11 => "Good morning",
@@ -176,27 +211,22 @@ fn refresh_calendar(app: &AppWindow, st: &State) {
         s(format!("{greet}, {}.", household::HOUSEHOLD))
     );
 
-    let first_current = events.iter().position(|e| e.ends() > now);
-    let split_at_upcoming = first_current.unwrap_or(events.len());
-    let row =
-        |(i, e): (usize, &Event)| agenda_row(e, clock24, Some(i) == first_current, e.ends() <= now);
     sync_by(
         &st.models.agenda_past,
-        events
+        agenda
+            .past
             .iter()
-            .enumerate()
-            .take(split_at_upcoming)
-            .map(row)
+            .map(|event| agenda_row(event, clock24, false, true))
             .collect(),
         same_agenda,
     );
     sync_by(
         &st.models.agenda_current,
-        events
+        agenda
+            .current
             .iter()
             .enumerate()
-            .skip(split_at_upcoming)
-            .map(row)
+            .map(|(i, event)| agenda_row(event, clock24, i == 0, false))
             .collect(),
         same_agenda,
     );
@@ -204,7 +234,11 @@ fn refresh_calendar(app: &AppWindow, st: &State) {
         f,
         get_agenda_done,
         set_agenda_done,
-        s(if events.is_empty() {
+        s(if hidden && event_count == 0 {
+            "Host calendar hidden."
+        } else if !connected {
+            "Waiting for calendar data."
+        } else if event_count == 0 {
             "Nothing on the calendar today."
         } else {
             "That's everything for today."
@@ -216,42 +250,38 @@ fn refresh_calendar(app: &AppWindow, st: &State) {
         set_agenda_done_sub,
         s(match tomorrow.first() {
             Some(e) => format!(
-                "Tomorrow starts with {} at {}.",
+                "Tomorrow starts with {} · {}.",
                 e.title,
-                fmt_time(e.start, clock24)
+                event_time(e, clock24)
             ),
+            None if hidden => "Unlock your computer to show its events.".into(),
+            None if !connected => "Connect host sync to see your events.".into(),
             None => "Tomorrow is clear too.".into(),
         })
     );
 
-    let mut who: Vec<_> = events.iter().flat_map(|e| e.people.clone()).collect();
-    who.sort();
-    who.dedup();
     set_changed!(
         f,
         get_agenda_summary,
         set_agenda_summary,
-        s(format!(
-            "{} · {}",
-            plural(events.len(), "event"),
-            plural(who.len(), "person").replace("persons", "people")
-        ))
+        s(if connected {
+            plural(event_count, "event")
+        } else {
+            "Not synced".into()
+        })
     );
 
-    let (text, urgent) = match first_current.map(|i| &events[i]) {
-        Some(e) if e.start <= now => (format!("{} — happening now", e.title), false),
-        Some(e) => {
-            let mins = (e.start - now).num_minutes().max(0) + 1;
-            let label = e.heads_up.clone().unwrap_or_else(|| e.title.clone());
-            if mins < 60 {
-                (format!("{label} in {mins} min"), mins <= 15)
-            } else {
-                (format!("{label} at {}", fmt_time(e.start, clock24)), false)
-            }
-        }
+    let (text, urgent) = match agenda.current.first() {
+        Some(e) => match e.minutes_until(instant) {
+            None => (format!("{} — happening now", e.title), false),
+            Some(mins) if mins < 60 => (format!("{} in {mins} min", e.title), mins <= 15),
+            Some(_) => (format!("{} at {}", e.title, event_time(e, clock24)), false),
+        },
+        None if hidden && tomorrow.is_empty() => ("Host calendar hidden".into(), false),
+        None if !connected => ("Calendar not synced".into(), false),
         None => match tomorrow.first() {
             Some(e) => (
-                format!("Tomorrow: {} at {}", e.title, fmt_time(e.start, clock24)),
+                format!("Tomorrow: {} · {}", e.title, event_time(e, clock24)),
                 false,
             ),
             None => ("Nothing else planned today".into(), false),
@@ -275,26 +305,160 @@ fn refresh_calendar(app: &AppWindow, st: &State) {
             tday.format("%a").to_string().to_uppercase()
         ))
     );
+    let tomorrow_meetings = tomorrow.iter().filter(|event| !event.is_all_day());
     set_changed!(
         f,
         get_tomorrow_count,
         set_tomorrow_count,
-        s(plural(tomorrow.len(), "event"))
+        s(if connected {
+            plural(tomorrow_meetings.clone().count(), "event")
+        } else {
+            "Not synced".into()
+        })
     );
     let nobody_tint = settings::themes()[st.settings.get().theme].1.muted;
-    let minis: Vec<MiniEvent> = tomorrow
-        .iter()
+    let minis: Vec<MiniEvent> = tomorrow_meetings
         .take(3)
         .map(|e| MiniEvent {
-            time: s(fmt_time(e.start, clock24)),
+            time: s(event_time(e, clock24)),
             title: s(&e.title),
-            tint: e
-                .people
-                .first()
-                .map_or_else(|| nobody_tint, |&p| c(p.person().color)),
+            tint: nobody_tint,
         })
         .collect();
     sync(&st.models.tomorrow, minis);
+    refresh_upcoming_calendar(app, st, instant);
+}
+
+const UPCOMING_DAYS: u32 = 7;
+
+fn calendar_now() -> DateTime<Utc> {
+    if std::env::var("FRAME_NOW")
+        .ok()
+        .and_then(|v| chrono::NaiveTime::parse_from_str(&v, "%H:%M").ok())
+        .is_some()
+    {
+        if let Some(time) = settings::zone().from_local_datetime(&now()).earliest() {
+            return time.with_timezone(&Utc);
+        }
+    }
+    Utc::now()
+}
+
+fn calendar_row(event: &Event, day: NaiveDate, instant: DateTime<Utc>, clock24: bool) -> AgendaRow {
+    let live = day == instant.with_timezone(&settings::zone()).date_naive()
+        && !event.is_all_day()
+        && event.happening_at(instant);
+    let mut row = agenda_row(event, clock24, live, false);
+    let start = event.local_start();
+    let end = event.local_end();
+    if event.is_all_day() || start.date() != end.date() {
+        let caption = if event.is_all_day() {
+            if end.date() > start.date() + CDur::days(1) {
+                format!(
+                    "Through {}",
+                    (end.date() - CDur::days(1)).format("%a, %-d %b")
+                )
+            } else {
+                String::new()
+            }
+        } else {
+            format!(
+                "{} {} to {} {}",
+                start.format("%a, %-d %b"),
+                fmt_time(start, clock24),
+                end.format("%a, %-d %b"),
+                fmt_time(end, clock24)
+            )
+        };
+        row.meta = s([event.detail.as_str(), caption.as_str()]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · "));
+    }
+    if !event.is_all_day() && start.date() < day {
+        row.time = s("Continues");
+    }
+    if live {
+        row.meta = s(format!("Happening now · {}", row.meta));
+    }
+    row
+}
+
+fn refresh_upcoming_calendar(app: &AppWindow, st: &State, instant: DateTime<Utc>) {
+    let f = app.global::<Frame>();
+    let today = instant.with_timezone(&settings::zone()).date_naive();
+    let clock24 = st.settings.get().clock24;
+    let upcoming = st.calendar.upcoming(instant, UPCOMING_DAYS);
+    let connected = st.calendar.has_snapshot();
+    set_changed!(f, get_calendar_synced, set_calendar_synced, connected);
+    set_changed!(
+        f,
+        get_calendar_event_count,
+        set_calendar_event_count,
+        upcoming.event_count as i32
+    );
+    set_changed!(
+        f,
+        get_calendar_summary,
+        set_calendar_summary,
+        s(if connected {
+            format!(
+                "{} · Next {UPCOMING_DAYS} days",
+                plural(upcoming.event_count, "event")
+            )
+        } else {
+            "Upcoming events".into()
+        })
+    );
+    let updated = st
+        .calendar
+        .updated_at()
+        .map(|time| {
+            let time = time.with_timezone(&settings::zone()).naive_local();
+            if time.date() == today {
+                format!("Last synced at {}", fmt_time(time, clock24))
+            } else {
+                format!(
+                    "Last synced {} · {}",
+                    time.format("%-d %b %Y"),
+                    fmt_time(time, clock24)
+                )
+            }
+        })
+        .unwrap_or_default();
+    set_changed!(f, get_calendar_updated, set_calendar_updated, s(updated));
+    let rows = upcoming
+        .days
+        .into_iter()
+        .map(|day| CalendarDay {
+            heading: s(if day.date == today {
+                "Today".into()
+            } else if day.date == today + CDur::days(1) {
+                "Tomorrow".into()
+            } else {
+                day.date.format("%A").to_string()
+            }),
+            date: s(if day.date <= today + CDur::days(1) {
+                day.date.format("%A, %-d %B").to_string()
+            } else {
+                day.date.format("%-d %B").to_string()
+            }),
+            summary: s(if day.events.is_empty() {
+                String::new()
+            } else {
+                plural(day.events.len(), "event")
+            }),
+            today: day.date == today,
+            events: ModelRc::new(VecModel::from(
+                day.events
+                    .iter()
+                    .map(|event| calendar_row(event, day.date, instant, clock24))
+                    .collect::<Vec<_>>(),
+            )),
+        })
+        .collect();
+    sync_by(&st.models.calendar_days, rows, same_calendar_day);
 }
 
 const LIST_CARD_ROWS: usize = 3;
@@ -384,6 +548,7 @@ fn apply_settings(app: &AppWindow, st: &State, animate_theme: bool) {
     f.set_photo_transition_index(if set.photo_slide { 0 } else { 1 });
     f.set_screensaver_idle_index(set.screensaver_idle as i32);
     f.set_timezone_index(set.timezone as i32);
+    f.set_hide_host_calendar_when_locked(set.hide_host_calendar_when_locked);
 
     let palette = settings::themes()[set.theme].1.clone();
     if animate_theme && theme.get_motion() && theme.get_c() != palette {
@@ -411,6 +576,22 @@ fn schedule_clock(weak: slint::Weak<AppWindow>, st: Rc<State>) {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::args().nth(1).as_deref() == Some("--host-state-receive") {
+        host_state::receive(
+            std::io::stdin().lock(),
+            std::io::stdout().lock(),
+            &host_state::path_for_calendar(&calendar_sync::host_path()),
+        )?;
+        return Ok(());
+    }
+    if std::env::args().nth(1).as_deref() == Some("--calendar-receive") {
+        calendar_sync::receive(
+            std::io::stdin().lock(),
+            std::io::stdout().lock(),
+            &calendar_sync::host_path(),
+        )?;
+        return Ok(());
+    }
     #[cfg(all(feature = "frame", target_os = "linux"))]
     let termination_signals = shutdown::block_termination()?;
     let _trace_guard = frame_trace::init_from_env();
@@ -419,6 +600,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         agenda_past: Rc::new(VecModel::default()),
         agenda_current: Rc::new(VecModel::default()),
         tomorrow: Rc::new(VecModel::default()),
+        calendar_days: Rc::new(VecModel::default()),
         list: Rc::new(VecModel::default()),
         chores: Rc::new(VecModel::default()),
     };
@@ -435,6 +617,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         f.set_agenda_past(models.agenda_past.clone().into());
         f.set_agenda_current(models.agenda_current.clone().into());
         f.set_tomorrow(models.tomorrow.clone().into());
+        f.set_calendar_days(models.calendar_days.clone().into());
         f.set_list(models.list.clone().into());
         f.set_chores(models.chores.clone().into());
         f.set_weather_line(s(format!("{} · H 27° L 19°", weather::city())));
@@ -488,7 +671,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         settings: Cell::new(Settings::load()),
         chores: RefCell::new(household::demo_chores(now().weekday())),
         list: RefCell::new(household::demo_list()),
-        calendar: Box::new(DemoCalendar),
+        calendar: Calendar::from_env()?,
         models,
         screensaver: RefCell::new(None),
     });
@@ -539,6 +722,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     refresh_lists(&app, &st);
 
     schedule_clock(app.as_weak(), st.clone());
+    let calendar_updates = Timer::default();
+    let (weak, calendar_state) = (app.as_weak(), st.clone());
+    calendar_updates.start(TimerMode::Repeated, Duration::from_secs(1), move || {
+        if let Some(app) = weak.upgrade() {
+            if calendar_state.calendar.poll() {
+                refresh_calendar(&app, &calendar_state);
+            }
+        }
+    });
 
     let f = app.global::<Frame>();
     macro_rules! on {
@@ -614,6 +806,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         |set, i: i32| {
             set.timezone = i as usize;
             settings::set_zone_index(set.timezone);
+        },
+        refresh_clock_and_calendar
+    );
+    setting!(
+        on_pick_hide_host_calendar_when_locked,
+        |set, enabled: bool| {
+            set.hide_host_calendar_when_locked = enabled;
         },
         refresh_clock_and_calendar
     );

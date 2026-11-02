@@ -2,7 +2,7 @@ use chrono::{NaiveDateTime, Timelike};
 use slint::{Model, ModelRc, VecModel};
 use std::time::Duration;
 
-use crate::{AgendaRow, ChoreRow};
+use crate::{AgendaRow, CalendarDay, ChoreRow};
 
 pub fn until_next_minute(now: NaiveDateTime) -> Duration {
     let elapsed_ms = u64::from(now.second()) * 1000 + u64::from(now.nanosecond()) / 1_000_000;
@@ -42,6 +42,19 @@ pub fn same_agenda(left: &AgendaRow, right: &AgendaRow) -> bool {
         && left.next == right.next
         && left.past == right.past
         && same_rows(&left.people, &right.people)
+}
+
+pub fn same_calendar_day(left: &CalendarDay, right: &CalendarDay) -> bool {
+    left.heading == right.heading
+        && left.date == right.date
+        && left.summary == right.summary
+        && left.today == right.today
+        && left.events.row_count() == right.events.row_count()
+        && left
+            .events
+            .iter()
+            .zip(right.events.iter())
+            .all(|(a, b)| same_agenda(&a, &b))
 }
 
 pub fn same_chore(left: &ChoreRow, right: &ChoreRow) -> bool {

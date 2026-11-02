@@ -14,6 +14,7 @@ import unittest
 sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("prepare_femtovg", HERE / "prepare-femtovg-patch.py")
+assert spec is not None and spec.loader is not None
 helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helper)
 
@@ -80,6 +81,22 @@ class PreparationTests(unittest.TestCase):
                 self.assertFalse((app / "target").exists())
         self.assertEqual(before, {p: p.read_bytes() for p in watched})
         self.assertEqual(before_registry, {p: directory_hash(p) for p in registries})
+
+    def test_prepared_workspace_keeps_host_and_calendar_crates(self):
+        files = {
+            "host-sync/Cargo.toml": '[package]\nname = "frame-host-sync"\nversion = "0.1.0"\n',
+            "host-sync/calendar-sync/Cargo.toml": '[package]\nname = "calendar-sync"\nversion = "0.1.0"\n',
+            "host-sync/calendar-sync/src/lib.rs": "pub const VERSION: u32 = 1;\n",
+            "host-sync/host-state/Cargo.toml": '[package]\nname = "host-state"\nversion = "0.1.0"\n',
+            "host-sync/host-command/Cargo.toml": '[package]\nname = "host-command"\nversion = "0.1.0"\n',
+        }
+        for name, content in files.items():
+            target = self.source / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content)
+        app = helper.prepare(self.source, self.metadata, self.output, False, False)
+        for name, content in files.items():
+            self.assertEqual((app / name).read_text(), content)
 
     def test_rejects_changed_registry_source(self):
         for name, file, image_aa, quarter_turn in [

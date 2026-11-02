@@ -3,7 +3,6 @@ use chrono::Weekday;
 #[derive(Clone, Copy)]
 pub struct Person {
     pub name: &'static str,
-    pub initial: &'static str,
     pub color: u32,
 }
 
@@ -12,38 +11,21 @@ pub const HOUSEHOLD: &str = "Sharmas";
 pub const PEOPLE: [Person; 4] = [
     Person {
         name: "Aditya",
-        initial: "A",
         color: 0x4B7AA3,
     },
     Person {
         name: "Neha",
-        initial: "N",
         color: 0xC9532D,
     },
     Person {
         name: "Kabir",
-        initial: "K",
         color: 0x5F8460,
     },
     Person {
         name: "Mira",
-        initial: "M",
         color: 0x8A63A8,
     },
 ];
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PersonIdx(usize);
-
-impl PersonIdx {
-    pub const fn new(index: usize) -> Self {
-        Self(index)
-    }
-
-    pub fn person(self) -> Person {
-        PEOPLE[self.0]
-    }
-}
 
 pub const MONDAY_FIRST: [Weekday; 7] = [
     Weekday::Mon,

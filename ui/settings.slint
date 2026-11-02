@@ -161,6 +161,58 @@ component Section inherits VerticalLayout {
     @children
 }
 
+export component CalendarPrivacyChoice inherits Rectangle {
+    min-height: Size.button + Space.xxl;
+    min-width: body.min-width;
+    preferred-height: body.preferred-height;
+    background: touch.pressed ? Theme.c.surface.mix(Theme.c.bg, 1 - Alpha.pressed) : Theme.c.surface;
+    border-radius: Radius.panel;
+    border-width: focus.has-focus ? Size.line-bold : 0px;
+    border-color: Theme.c.accent;
+    forward-focus: focus;
+    accessible-role: checkbox;
+    accessible-label: "Hide host calendar when computer locks";
+    accessible-checkable: true;
+    accessible-checked: Frame.hide-host-calendar-when-locked;
+    accessible-action-default => { root.toggle(); }
+    function toggle() { Frame.pick-hide-host-calendar-when-locked(!Frame.hide-host-calendar-when-locked); }
+    body := HorizontalLayout {
+        padding: Space.xl;
+        spacing: Space.xl;
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: Space.sm;
+            alignment: center;
+            Body { text: "Hide host calendar when computer locks"; size: Type.title; font-weight: Type.weight-medium; wrap: word-wrap; }
+            Body { text: "Also hides on sleep or disconnect. Direct calendars stay visible."; color: Theme.c.muted; wrap: word-wrap; }
+        }
+        VerticalLayout {
+            width: Size.segmented;
+            alignment: center;
+            Rectangle {
+                height: Size.button;
+                border-radius: Radius.panel;
+                background: Frame.hide-host-calendar-when-locked ? Theme.c.ink : Theme.c.bg;
+                Body {
+                    text: Frame.hide-host-calendar-when-locked ? "On" : "Off";
+                    size: Type.title;
+                    color: Frame.hide-host-calendar-when-locked ? Theme.c.bg : Theme.c.ink;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+    touch := TouchArea { clicked => { focus.focus(); root.toggle(); } }
+    focus := FocusScope {
+        width: 0px;
+        key-pressed(event) => {
+            if (event.text == Key.Space || event.text == Key.Return) { root.toggle(); return accept; }
+            return reject;
+        }
+    }
+}
+
 export component SettingsScreen inherits Flickable {
     content-width: self.width;
     content-height: body.preferred-height;
@@ -176,6 +228,10 @@ export component SettingsScreen inherits Flickable {
             Body { text: "PREFERENCES"; size: Type.caption; font-weight: Type.weight-semibold; letter-spacing: Type.tracking-wide; color: Theme.c.muted; }
             Display { text: "Settings"; size: Type.display-xl; }
             Body { text: "Changes apply instantly and are saved on this frame."; size: Type.body-l; color: Theme.c.muted; }
+        }
+        Section {
+            title: "Calendar privacy";
+            CalendarPrivacyChoice { }
         }
         Section {
             title: "Theme";

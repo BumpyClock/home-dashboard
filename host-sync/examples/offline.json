@@ -1,0 +1,7 @@
+{
+  "calendar": {
+    "sources": [
+      { "kind": "json", "id": "example", "path": "events.json" }
+    ]
+  }
+}

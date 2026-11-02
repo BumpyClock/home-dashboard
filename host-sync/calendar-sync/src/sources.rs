@@ -1,4 +1,4 @@
-use crate::{Event, EventTime, Snapshot, Source};
+use crate::{Event, EventTime, Snapshot, Source, MAX_DETAIL_BYTES, MAX_TITLE_BYTES};
 use anyhow::{bail, ensure, Context, Result};
 use chrono::{DateTime, Duration, Local, NaiveDateTime, TimeZone, Utc};
 use serde::Deserialize;
@@ -143,15 +143,20 @@ fn calendar_window(
     zone: impl TimeZone,
 ) -> Result<(DateTime<Utc>, DateTime<Utc>)> {
     let today = now.with_timezone(&zone).date_naive();
-    let midnight = |day: chrono::NaiveDate| {
-        zone.from_local_datetime(&day.and_hms_opt(0, 0, 0).unwrap())
-            .earliest()
+    let day_start = |day: chrono::NaiveDate| {
+        let midnight = day.and_hms_opt(0, 0, 0).unwrap();
+        // Midnight can be skipped. Do not silently advance into another civil date.
+        (0..86_400)
+            .find_map(|seconds| {
+                zone.from_local_datetime(&(midnight + Duration::seconds(seconds)))
+                    .earliest()
+            })
             .map(|time| time.with_timezone(&Utc))
-            .context("calendar day has no midnight in this time zone")
+            .with_context(|| format!("calendar date {day} has no valid local time"))
     };
     Ok((
-        midnight(today)?,
-        midnight(today + Duration::days(i64::from(days)))?,
+        day_start(today)?,
+        day_start(today + Duration::days(i64::from(days)))?,
     ))
 }
 
@@ -274,7 +279,7 @@ struct GraphEvent {
     id: String,
     #[serde(rename = "iCalUId", alias = "iCalUID")]
     uid: Option<String>,
-    subject: String,
+    subject: Option<String>,
     start: GraphTime,
     end: GraphTime,
     #[serde(default, rename = "isAllDay")]
@@ -282,6 +287,15 @@ struct GraphEvent {
     #[serde(default, rename = "isCancelled")]
     cancelled: bool,
     location: Option<GraphLocation>,
+}
+
+fn bounded_text(mut text: String, max_bytes: usize) -> String {
+    let mut end = text.len().min(max_bytes);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text.truncate(end);
+    text
 }
 
 fn graph_time(time: GraphTime) -> Result<DateTime<Utc>> {
@@ -349,11 +363,19 @@ fn graph_events(value: Value) -> Result<Vec<Event>> {
                     end: graph_time(event.end)?,
                 }
             };
+            let title = bounded_text(event.subject.unwrap_or_default(), MAX_TITLE_BYTES);
             Ok(Event {
                 id: event.id,
                 uid: event.uid,
-                title: event.subject,
-                detail: event.location.map_or_else(String::new, |l| l.name),
+                title: if title.trim().is_empty() {
+                    "(No title)".into()
+                } else {
+                    title
+                },
+                detail: bounded_text(
+                    event.location.map_or_else(String::new, |l| l.name),
+                    MAX_DETAIL_BYTES,
+                ),
                 time,
             })
         })

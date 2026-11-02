@@ -134,6 +134,30 @@ fn calendar_window_starts_today_in_selected_zone_and_tracks_dst_boundaries() {
             "2026-11-02T15:00:00+00:00",
             "2026-11-04T15:00:00+00:00",
         ),
+        (
+            "2026-09-06T12:00:00Z",
+            chrono_tz::America::Santiago,
+            "2026-09-06T04:00:00+00:00",
+            "2026-09-08T03:00:00+00:00",
+        ),
+        (
+            "2026-09-04T12:00:00Z",
+            chrono_tz::America::Santiago,
+            "2026-09-04T04:00:00+00:00",
+            "2026-09-06T04:00:00+00:00",
+        ),
+        (
+            "2026-03-08T12:00:00Z",
+            chrono_tz::America::Havana,
+            "2026-03-08T05:00:00+00:00",
+            "2026-03-10T04:00:00+00:00",
+        ),
+        (
+            "2026-11-01T12:00:00Z",
+            chrono_tz::America::Havana,
+            "2026-11-01T04:00:00+00:00",
+            "2026-11-03T05:00:00+00:00",
+        ),
     ] {
         let response = json!({"content":[{"type":"text","text":"Calendar view retrieved successfully.\n{\"value\":[]}"}]});
         let cmd = executable(
@@ -167,6 +191,70 @@ fn calendar_window_starts_today_in_selected_zone_and_tracks_dst_boundaries() {
         serde_json::from_str::<Config>(r#"{"days":7,"time_zone":"Not/AZone","sources":[]}"#)
             .is_err()
     );
+    let skipped_date = Config {
+        days: 2,
+        time_zone: Some(chrono_tz::Pacific::Apia),
+        sources: vec![],
+    };
+    assert!(skipped_date
+        .fetch(dir.path(), "2011-12-28T12:00:00Z".parse().unwrap())
+        .is_err());
+}
+
+#[test]
+fn calendar_mcp_normalizes_untitled_and_oversized_display_fields_before_validation() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = json!({"id":"missing-subject",
+        "start":{"dateTime":"2026-11-02T18:00:00Z"},
+        "end":{"dateTime":"2026-11-02T19:00:00Z"}});
+    let mut rows = vec![base.clone()];
+    for (id, subject) in [
+        ("null", json!(null)),
+        ("empty", json!("")),
+        ("blank", json!("\u{2003} \n\t")),
+    ] {
+        let mut row = base.clone();
+        row["id"] = json!(id);
+        row["subject"] = subject;
+        rows.push(row);
+    }
+    let mut oversized = base.clone();
+    oversized["id"] = json!("oversized");
+    oversized["subject"] = json!(format!("{}é", "x".repeat(2047)));
+    oversized["location"] = json!({"displayName": format!("{}🚀", "l".repeat(8191))});
+    rows.push(oversized);
+    let mut exact = base.clone();
+    exact["id"] = json!("exact");
+    exact["subject"] = json!("é".repeat(1024));
+    exact["location"] = json!({"displayName": "🚀".repeat(2048)});
+    rows.push(exact);
+    let mut clipped_blank = base;
+    clipped_blank["id"] = json!("clipped-blank");
+    clipped_blank["subject"] = json!(format!("{}title after limit", " ".repeat(2048)));
+    rows.push(clipped_blank);
+    let response = json!({"structuredContent": {"value": rows}});
+    let cmd = executable(dir.path(), &format!("printf '%s' '{response}'"));
+    let config = Config {
+        days: 7,
+        time_zone: Some(chrono_tz::UTC),
+        sources: vec![SourceConfig::McporterCalendar {
+            id: "work".into(),
+            executable: cmd,
+            server: "MicrosoftCalendar".into(),
+        }],
+    };
+    let snapshot = config
+        .fetch(dir.path(), "2026-11-02T12:00:00Z".parse().unwrap())
+        .unwrap();
+    snapshot.encode().unwrap();
+    let events = &snapshot.sources[0].events;
+    assert_eq!(events.len(), 7);
+    assert!(events[..4].iter().all(|event| event.title == "(No title)"));
+    assert_eq!(events[4].title, "x".repeat(2047));
+    assert_eq!(events[4].detail, "l".repeat(8191));
+    assert_eq!(events[5].title, "é".repeat(1024));
+    assert_eq!(events[5].detail, "🚀".repeat(2048));
+    assert_eq!(events[6].title, "(No title)");
 }
 
 #[test]

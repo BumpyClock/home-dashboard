@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 
 pub const VERSION: u32 = 1;
 pub const MAX_BYTES: usize = 1024 * 1024;
+pub const MAX_TITLE_BYTES: usize = 2048;
+pub const MAX_DETAIL_BYTES: usize = 8192;
 pub const READY: &str = "FRAME_CALENDAR_READY_V1";
 pub const STORED: &str = "FRAME_CALENDAR_STORED_V1";
 
@@ -91,10 +93,13 @@ impl Snapshot {
                     source.id
                 );
                 ensure!(
-                    !event.title.trim().is_empty() && event.title.len() <= 2048,
+                    !event.title.trim().is_empty() && event.title.len() <= MAX_TITLE_BYTES,
                     "invalid event title"
                 );
-                ensure!(event.detail.len() <= 8192, "event detail too long");
+                ensure!(
+                    event.detail.len() <= MAX_DETAIL_BYTES,
+                    "event detail too long"
+                );
                 if let Some(uid) = &event.uid {
                     ensure!(
                         !uid.trim().is_empty() && uid.len() <= 2048,

@@ -31,7 +31,9 @@ Copy an example to a private file and edit `connection.port`. Use the exact name
 
 Connection can be omitted for `preview`. Source file paths are relative to the configuration file. Executables resolve from PATH, or use an absolute path. For npm CLIs on Windows, set `executable` to the installed `.cmd` shim when needed, for example `mcporter.cmd` or `workiq.cmd`.
 
-`calendar.days` defaults to 7, allowed 1 to 31. Queries start at today's local midnight and end at midnight `days` calendar days later, exclusive. Today is included in that count. There is no yesterday padding. Each midnight is converted separately to UTC, preserving daylight-saving changes. `calendar.time_zone` optionally selects an IANA zone such as `America/Los_Angeles`; otherwise the host's system zone defines today. Set it to the frame's configured zone when host and frame differ.
+`calendar.days` defaults to 7, allowed 1 to 31. Queries start at today's first valid local instant and end at the first valid instant `days` calendar days later, exclusive. This is normally midnight. If a DST change skips midnight, the boundary uses the first valid time on that date; ambiguous midnight uses its earlier instant. An entirely skipped civil date fails the cycle instead of silently shifting the window. Today is included in the count. There is no yesterday padding. Each boundary is converted separately to UTC, preserving daylight-saving changes. `calendar.time_zone` optionally selects an IANA zone such as `America/Los_Angeles`; otherwise the host's system zone defines today. Set it to the frame's configured zone when host and frame differ.
+
+Keep private configuration and live captures under the repository-ignored `.local/` directory, not beside committed examples. Do not force-add those files.
 
 `interval_seconds` defaults to 300, allowed 30 to 86400. Empty `sources` explicitly clears host calendar data on the next successful sync.
 
@@ -75,7 +77,7 @@ Calls `MicrosoftCalendar.ListCalendarView`, not `ListEvents`, to expand recurrin
 
 Observed live MCP output has one text payload prefixed with `Calendar view retrieved successfully.`, followed by Graph JSON, and a separate `CorrelationId`/timestamp text block. The adapter removes that known framing, parses JSON and validates events. It prefers `structuredContent` when the server supplies it. It does not search arbitrary prose for braces or use a model to recover missing fields. Unknown framing, multiple payloads, malformed JSON and MCP errors fail the cycle instead of clearing the calendar. A valid empty `value` array is accepted.
 
-Maps `iCalUId`, subject, start/end, location, all-day events and cancellation state. Naive timed values are accepted only when explicitly marked UTC. All-day dates use the returned civil dates with an exclusive end.
+Maps `iCalUId`, subject, start/end, location, all-day events and cancellation state. Missing, null or blank subjects display as `(No title)`. Titles and location text are capped at 2048 and 8192 UTF-8 bytes without splitting characters; fields within those limits are preserved. IDs, UIDs and times are not shortened. Naive timed values are accepted only when explicitly marked UTC. All-day dates use the returned civil dates with an exclusive end.
 
 A paginated result or 1000 returned rows fails the cycle instead of silently replacing the frame with a truncated calendar. Reduce `calendar.days` in that case. Automatic pagination is not implemented.
 
@@ -187,7 +189,7 @@ bash scripts/check-host-sync.sh --with-frame
 cargo test -p photoframe_proto
 ```
 
-Host checks include source-order deduplication permutations, inherited-pipe timeouts, stdout/stderr limits, descendant cleanup, and the shared lock-state lease/receiver tests. On Linux, `scripts/test-host-privacy.py` runs the real watcher against a PTY and a slow fixture CLI, asserting that status heartbeats continue while calendar fetching is blocked. Host checks do not build Slint. `--with-frame` additionally exercises the real frame receiver and file reload logic. On Linux, it uses a PTY to test host login, serial framing, a payload larger than canonical TTY limits, receiver persistence, empty replacement and source failure. On macOS, serialport's baud ioctl rejects PTYs, so this script uses subprocess pipes instead. Rust integration tests also exercise the wire exchange over local sockets. The frame's desktop tests include a headless Slint check of agenda, duplicate removal, all-day rows, tomorrow, next-up and empty states.
+Host checks verify `.local/` protection in an isolated Git repository without machine-specific ignore rules. They also cover missing/blank subjects, UTF-8 display-field limits, skipped/ambiguous midnight boundaries, source-order deduplication permutations, inherited-pipe timeouts, stdout/stderr limits, descendant cleanup, and the shared lock-state lease/receiver tests. On Linux, `scripts/test-host-privacy.py` runs the real watcher against a PTY and a slow fixture CLI, asserting that status heartbeats continue while calendar fetching is blocked. Host checks do not build Slint. `--with-frame` additionally exercises the real frame receiver and file reload logic. On Linux, it uses a PTY to test host login, serial framing, a payload larger than canonical TTY limits, receiver persistence, empty replacement and source failure. On macOS, serialport's baud ioctl rejects PTYs, so this script uses subprocess pipes instead. Rust integration tests also exercise the wire exchange over local sockets. The frame's desktop tests include a headless Slint check of agenda, duplicate removal, all-day rows, tomorrow, next-up and empty states.
 
 Linux CI can run in a secret-free Boat sandbox following [Boat CI](https://docs.boat.dev/ci):
 

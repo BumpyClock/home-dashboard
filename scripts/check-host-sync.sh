@@ -2,6 +2,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+ignore_test=$(mktemp -d)
+trap 'rm -rf "$ignore_test"' EXIT
+git init --quiet --template= "$ignore_test"
+cp .gitignore "$ignore_test/.gitignore"
+git -C "$ignore_test" -c core.excludesFile=/dev/null check-ignore --no-index .local/calendar-sync/fixture.json >/dev/null
+printf '%s\n' 'PASS repository-local privacy ignore'
+
 cargo fmt --all -- --check
 cargo test --locked -p calendar-sync -p frame-host-sync -p host-state -p host-command --all-features
 cargo clippy --locked -p calendar-sync -p frame-host-sync -p host-state -p host-command --all-targets --all-features -- -D warnings

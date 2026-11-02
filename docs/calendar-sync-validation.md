@@ -86,6 +86,16 @@ After these corrections:
 
 These corrections have not been deployed to the connected frame. Its watcher and serial port were left untouched.
 
+## Pre-merge review follow-up
+
+Three new PR review findings were reproduced before correction. With machine-specific ignore rules disabled, an isolated Git repository did not ignore `.local/`. A real fixture-provider fetch failed on an absent subject, and query-window construction failed when Santiago skipped midnight.
+
+The repository now ignores root `.local/`, with a fresh-repository check in `scripts/check-host-sync.sh`. Calendar MCP normalizes absent/blank subjects to `(No title)` and caps display strings at the shared protocol byte limits without splitting UTF-8. Existing field values within the limits, identities and event times remain unchanged. Day boundaries choose the first valid local second on the requested date, preserving the earlier instant for ambiguous midnight and rejecting a wholly skipped date rather than rolling into another day.
+
+Provider-process regressions cover missing/null/empty/Unicode-blank subjects, a blank prefix after clipping, multibyte overflow and exact byte limits. Query fixtures cover skipped midnight at either window boundary in Santiago, skipped and ambiguous midnight in Havana, and a wholly skipped Apia date. These checks use synthetic data only.
+
+Follow-up validation passed 129 macOS frame tests and 28 host/shared tests on macOS and Linux, with strict host Clippy. A fresh secret-free Boat run also passed the isolated Git-ignore check, 10 headless frame calendar tests, serial PTY persistence/replacement/failure checks, independent lock heartbeats and the Windows GNU target check. Boat deleted that sandbox after success. No device deployment or watcher restart was performed.
+
 ## Remaining verification
 - If WorkIQ is selected instead of Calendar MCP, establish that its response is complete. Its structured answer remains model-generated even after syntax and completeness checks.
 - Build and run on Windows with the user's CLI installations and USB serial driver.

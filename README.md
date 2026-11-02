@@ -1,6 +1,6 @@
 # CAUTION
 
-This project is very early in development. The functionality is very barebones, the basic GUI works, there is no real calendar, or any data integration for now. It will come in time, this was a quick spike to explore if this was a viable direction at all. Seems like it is so I will continue to build on top of it. If you're interested in collaborating, you're more than welcome to fork , and contribute.
+This project is early in development. The dashboard has real photos, weather and host-supplied calendar data. Direct Google Calendar integration and several tabs are not built yet.
 
 
 # Family Frame — Slint photoframe dashboard (prototype)
@@ -22,6 +22,9 @@ Useful env vars:
 |---|---|
 | `FRAME_LAT`, `FRAME_LON`, `FRAME_CITY` | Weather location + label (default Seattle). Weather is live from [Open-Meteo](https://open-meteo.com/en/docs), no key. Offline → demo values stay. |
 | `FRAME_NOW=21:40` | Pretend it's that time today (preview the agenda at other times). |
+| `FRAME_CALENDAR_HOST=path.json` | Persisted host calendar snapshot, default `~/.local/share/family-frame/calendar-host.json`. The production unit points to the serial login user's copy. |
+| `FRAME_CALENDAR_MODE=host` / `combined` | Host-only or host plus on-device calendar snapshots. Default `combined`. |
+| `FRAME_CALENDAR_DIRECT=path.json` | Optional independent snapshot from an on-device provider. Google fetching/authentication comes later. |
 | `FRAME_SIZE=800x1280` | Open the window at that size (portrait preview). |
 | `FRAME_TAB=0..5` | Start on a tab: Home, Calendar, Photos, Lists, Meals, Settings. |
 | `FRAME_SETTINGS=path.json` | Settings file (default `~/.config/family-frame/settings.json`). |
@@ -44,11 +47,13 @@ Useful env vars:
 
 | Area | File | Today |
 |---|---|---|
-| Calendar | `src/calendar.rs` → `CalendarSource::events_on(day)` | `DemoCalendar` (fake events anchored to the real date). Implement the trait for CalDAV / Google / ICS and swap it in `main.rs`. |
+| Calendar | `host-sync/calendar-sync` → `src/calendar.rs` | Real structured snapshots over USB serial. WorkIQ CLI/MCP, Microsoft Calendar MCP and JSON host sources. Host-only or combined inputs, deduplicated on the frame. |
 | People, chores, shared list | `src/household.rs` | Demo data |
 | Photos | `src/photos.rs` | Real JPEGs from `FRAME_PHOTOS`; only the photos around the one shown, plus the last-viewed grid range of thumbnails, stay decoded |
 | Weather | `src/weather.rs` | Live Open-Meteo |
 | Settings | `src/settings.rs` | Themes, fonts, text size, clock, motion, photo transition, screensaver delay; JSON on disk |
+
+[Host sync setup, source configuration, serial protocol and checks](host-sync/README.md) live under `host-sync/`. The `frame-host-sync` Rust app owns capability commands and transport; its smaller `calendar-sync` crate owns calendar-specific data and sources. No host-side Slint dependency. Before the first valid snapshot, the agenda shows a not-synced state, not demo meetings.
 
 Everything the UI shows lives in the `Frame` global (`ui/data.slint`);
 Rust fills it, the UI never computes data.
@@ -73,6 +78,13 @@ Slint copies of the Linen palette fail the build with file:line messages.
   rubber-band past the ends, spring settle (`ui/scroll.slint`). After 15 s
   idle it springs back to now; when an event ends, the list glides on.
 - When everything's over: "That's everything for today." + tomorrow's first event.
+- Home's Tomorrow card shows the first three timed events only. Its count excludes all-day events, so holidays and reminders cannot push meetings out of the preview.
+
+## Calendar tab
+
+A read-only upcoming agenda for the next seven days, grouped by local date. It includes all-day and overnight events, omits ended meetings, highlights meetings happening now, and shows the last sync time. Long titles and locations wrap rather than disappear behind an ellipsis.
+
+Drag, use the mouse wheel, or press arrows/Page Up/Page Down to browse. Today or Home returns to the beginning; End goes to the bottom. Scroll position survives tab changes, and live updates do not reset it. The screen follows the existing themes, fonts, text scale and motion setting in portrait and landscape. Empty and not-synced states remain distinct. Calendar editing and month/week grids are not included.
 
 ## Settings tab
 
@@ -85,12 +97,14 @@ zone; drives the clock, agenda, and night windows). Applies live, saved on
 change. Theme switches dip
 through the page color.
 
+Calendar privacy adds **Hide host calendar when computer locks**. When On, host-origin events are hidden across Home, Tomorrow, Calendar and screensaver text while the host is locked or its heartbeat is missing. Direct on-device calendars remain visible. Unlocking restores cached host data. It requires the updated host app running `calendar watch`; a 20-second heartbeat timeout also hides data after sleep/disconnect. The option defaults to Off and is saved on the frame. This hides display data, not its stored files. See [host privacy details and platform limits](host-sync/README.md#hide-host-calendars-when-the-computer-locks).
+
 ## Performance on the frame
 
 The PF1007L runs FemtoVG through GLES 2 and Mesa Lima at 800×1280.
 FemtoVG redraws the whole screen for each animated frame. Stable content
 caches reduce repeated drawing; they do not add damage-region rendering.
-Home appears immediately, and Home and Settings retain their state across
+Home appears immediately, and Home, Calendar and Settings retain their state across
 tab changes. Urgent indicators stop after three pulses. The slideshow
 advances every two minutes with Full motion; Calm, Off, hidden Home, and
 configured night windows stop automatic advances. Taps still advance photos. Current source
@@ -163,5 +177,5 @@ persistent startup and retains USB serial access.
 
 ## Not built yet
 
-Calendar, Lists, Meals tabs are placeholders. Shared list "+ Add"
+Lists and Meals tabs remain placeholders. Calendar now shows the upcoming agenda. Home agenda, tomorrow and next-up use real calendar snapshots. Direct Google Calendar authentication and fetching are not implemented. Shared list "+ Add"
 only logs. Chores: tap a row to toggle today. Shared list: tap to check off.

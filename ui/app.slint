@@ -8,16 +8,17 @@ import "fonts/AtkinsonHyperlegible-Regular.ttf";
 import "fonts/AtkinsonHyperlegible-Bold.ttf";
 
 import { Theme, Icons, Palette } from "theme.slint";
-import { Frame, Avatar, AgendaRow, MiniEvent, ListItem, DayDot, ChoreRow, HourSlot, Photo, ThemeSwatch, FontChoice } from "data.slint";
+import { Frame, Avatar, AgendaRow, MiniEvent, CalendarDay, ListItem, DayDot, ChoreRow, HourSlot, Photo, ThemeSwatch, FontChoice } from "data.slint";
 import { Header, Agenda, PhotoCard, WeatherCard, ChoresBlock, Display, Body, Icon } from "components.slint";
 import { Rail, BottomNav } from "nav.slint";
 import { SettingsScreen } from "settings.slint";
 import { PhotosScreen } from "photos_tab.slint";
+import { CalendarScreen } from "calendar_tab.slint";
 import { SaverLayer } from "screensaver.slint";
 import { Saver } from "saver.slint";
 import { Space, Size, Type, Motion } from "tokens.slint";
 
-export { Saver, Theme, Icons, Palette, Frame, Avatar, AgendaRow, MiniEvent, ListItem, DayDot, ChoreRow, HourSlot, Photo, ThemeSwatch, FontChoice }
+export { Saver, Theme, Icons, Palette, Frame, Avatar, AgendaRow, MiniEvent, CalendarDay, ListItem, DayDot, ChoreRow, HourSlot, Photo, ThemeSwatch, FontChoice }
 
 component HomeLandscape inherits HorizontalLayout {
     padding: Space.page;
@@ -69,7 +70,7 @@ component Placeholder inherits VerticalLayout {
         }
         Display { text: title; size: Type.display-xl; horizontal-alignment: center; }
         Body {
-            text: "Not built yet. Home, Photos and Settings are live in this prototype.";
+            text: "Home, Calendar, Photos and Settings are live. This tab is not built yet.";
             size: Type.title;
             color: Theme.c.muted;
             horizontal-alignment: center;
@@ -97,7 +98,12 @@ component Screen inherits Rectangle {
     preferred-height: 0px;
     if !portrait: HomeLandscape { visible: active-tab == 0; }
     if portrait: HomePortrait { visible: active-tab == 0; }
-    if Frame.active-tab == 1: Placeholder { title: "Calendar"; icon: "calendar-days"; }
+    calendar-alive := KeepAlive { shown: active-tab == 1; }
+    if calendar-alive.alive: CalendarScreen {
+        visible: active-tab == 1;
+        width: root.width;
+        height: root.height;
+    }
     if Frame.active-tab == 2: PhotosScreen { }
     if Frame.active-tab == 3: Placeholder { title: "Lists"; icon: "list-checks"; }
     if Frame.active-tab == 4: Placeholder { title: "Meals"; icon: "utensils"; }

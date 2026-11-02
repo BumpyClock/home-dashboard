@@ -1,6 +1,7 @@
 export struct Avatar { initial: string, tint: color }
 export struct AgendaRow { time: string, title: string, meta: string, people: [Avatar], next: bool, past: bool }
 export struct MiniEvent { time: string, title: string, tint: color }
+export struct CalendarDay { heading: string, date: string, summary: string, today: bool, events: [AgendaRow] }
 export struct ListItem { title: string, tint: color, done: bool }
 export struct DayDot { state: int, tint: color }
 export struct ChoreRow { name: string, who: string, tint: color, days: [DayDot] }
@@ -31,6 +32,16 @@ export global Frame {
     in property <string> tomorrow-label: "TOMORROW · WED";
     in property <string> tomorrow-count: "3 events";
     in property <[MiniEvent]> tomorrow;
+
+    in property <bool> calendar-synced;
+    in property <int> calendar-event-count;
+    in property <string> calendar-summary: "Upcoming events";
+    in property <string> calendar-updated;
+    in property <[CalendarDay]> calendar-days;
+    in property <bool> host-calendar-hidden;
+    in property <string> host-calendar-privacy;
+    in property <bool> hide-host-calendar-when-locked;
+    callback pick-hide-host-calendar-when-locked(bool);
 
     in property <string> list-label: "SHARED LIST · 5 OPEN";
     in property <[ListItem]> list;

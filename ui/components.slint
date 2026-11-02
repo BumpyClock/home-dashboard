@@ -194,7 +194,7 @@ export component TomorrowCard inherits SummaryCard {
             }
             Body { text: e.title; font-weight: Type.weight-medium; overflow: elide; horizontal-stretch: 1; }
         }
-        if Frame.tomorrow.length == 0: Body { text: "Nothing planned yet."; color: Theme.c.muted; }
+        if Frame.tomorrow.length == 0: Body { text: "No timed events tomorrow."; color: Theme.c.muted; }
     }
 }
 

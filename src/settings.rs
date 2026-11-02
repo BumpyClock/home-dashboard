@@ -18,6 +18,7 @@ pub struct Settings {
     pub photo_slide: bool,
     pub screensaver_idle: usize,
     pub timezone: usize,
+    pub hide_host_calendar_when_locked: bool,
 }
 
 impl Default for Settings {
@@ -32,6 +33,7 @@ impl Default for Settings {
             photo_slide: true,
             screensaver_idle: 2,
             timezone: 0,
+            hide_host_calendar_when_locked: false,
         }
     }
 }
@@ -389,7 +391,14 @@ impl Settings {
             set_zone_index(d.timezone);
             return d;
         };
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+        let settings = Self::decode(&text);
+        set_zone_index(settings.timezone);
+        settings
+    }
+
+    fn decode(text: &str) -> Self {
+        let d = Self::default();
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(text) else {
             return d;
         };
         let idx = |k: &str, max: usize, def: usize| {
@@ -415,21 +424,28 @@ impl Settings {
                 .or_else(|| v["motion"].as_bool().map(|on| if on { 0 } else { 2 }))
                 .unwrap_or(d.motion),
             timezone: timezone_index(v["timezone"].as_str()),
+            hide_host_calendar_when_locked: v["hide_host_calendar_when_locked"]
+                .as_bool()
+                .unwrap_or(d.hide_host_calendar_when_locked),
         };
-        set_zone_index(settings.timezone);
         settings
     }
 
-    pub fn save(&self) {
+    fn encode(&self) -> String {
         let json = serde_json::json!({
             "theme": self.theme, "display_font": self.display_font, "body_font": self.body_font,
             "scale": self.scale, "clock24": self.clock24, "motion": self.motion,
             "photo_slide": self.photo_slide, "screensaver_idle": self.screensaver_idle,
             "timezone": TIMEZONES[self.timezone.min(TIMEZONES.len() - 1)].1,
+            "hide_host_calendar_when_locked": self.hide_host_calendar_when_locked,
         });
+        serde_json::to_string_pretty(&json).unwrap()
+    }
+
+    pub fn save(&self) {
         let snapshot = SaveSnapshot {
             path: path(),
-            json: serde_json::to_string_pretty(&json).unwrap(),
+            json: self.encode(),
         };
         let writer = WRITER.get_or_init(|| {
             let (sender, receiver) = mpsc::channel();
@@ -480,6 +496,25 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn calendar_privacy_is_opt_in_and_survives_settings_roundtrip() {
+        let old = super::Settings::decode(r#"{"theme":2}"#);
+        assert!(!old.hide_host_calendar_when_locked);
+        assert_eq!(old.theme, 2);
+        let enabled = super::Settings {
+            hide_host_calendar_when_locked: true,
+            ..old
+        };
+        let decoded = super::Settings::decode(&enabled.encode());
+        assert!(decoded.hide_host_calendar_when_locked);
+        assert_eq!(decoded.theme, 2);
+        let disabled = super::Settings {
+            hide_host_calendar_when_locked: false,
+            ..enabled
+        };
+        assert!(!super::Settings::decode(&disabled.encode()).hide_host_calendar_when_locked);
     }
 
     #[test]

@@ -23,7 +23,7 @@ QUARTER_VERSION = "0.27.0"
 QUARTER_SOURCE_SHA256 = "a2448395b61ba674fcb485336299e87a11dc5013d5dbf947385a2930ddef1e15"
 QUARTER_PATCH_SHA256 = "14455d1a7bd9ef33cede08e4700ed32b32867ce9ca47ef1cb8cd9d482d2edb1c"
 QUARTER_RESULT_SHA256 = "b292e8053ef77e96b96de0a01932e09bc6d7c8ce3ef1f1ea31b8b14576363915"
-BUILD_INPUTS = ("Cargo.toml", "Cargo.lock", "build.rs", ".cargo", "src", "ui", "assets", "instrumentation", "renderer")
+BUILD_INPUTS = ("Cargo.toml", "Cargo.lock", "build.rs", ".cargo", "src", "ui", "assets", "instrumentation", "renderer", "host-sync")
 
 
 def registry_crate(packages: list, name: str, version: str, output: Path) -> Path:

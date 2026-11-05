@@ -10,6 +10,7 @@ import io
 import sys
 import tarfile
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 REPOS = ("core", "extra")
 
@@ -21,8 +22,11 @@ def entries(mirror, repo):
         for member in db:
             if not member.name.endswith("/desc"):
                 continue
+            description = db.extractfile(member)
+            if description is None:
+                raise ValueError(f"package description is not a file: {member.name}")
             fields, key = {}, None
-            for line in db.extractfile(member).read().decode().splitlines():
+            for line in description.read().decode().splitlines():
                 if line.startswith("%") and line.endswith("%"):
                     key = line.strip("%")
                 elif line and key and key not in fields:
@@ -35,9 +39,11 @@ def main():
     if not mirror.startswith("https://"):
         sys.exit(f"mirror must use https: {mirror}")
     index = {}
-    for repo in REPOS:
-        for fields in entries(mirror, repo):
-            index.setdefault(fields["NAME"], (repo, fields))
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        databases = [workers.submit(lambda repo=repo: list(entries(mirror, repo))) for repo in REPOS]
+        for repo, database in zip(REPOS, databases, strict=True):
+            for fields in database.result():
+                index.setdefault(fields["NAME"], (repo, fields))
     for line in sys.stdin:
         if not line.strip():
             continue

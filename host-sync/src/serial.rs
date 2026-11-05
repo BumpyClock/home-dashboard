@@ -74,10 +74,7 @@ impl Connection {
                 // Keep the existing getty. This shell owns the port only for one bounded exchange.
                 writeln!(port, "old=$(stty -g); stty -echo -icanon ixoff; printf '\\n'; timeout 30 /opt/photoframe-proto/current/photoframe_proto {receiver}; stty \"$old\"; printf '\\nFRAME_HOST_DONE_V1\\n'")?;
                 port.flush()?;
-                let result = exchange_message(&mut port, bytes, ready, stored);
-                let restored = wait_for(&mut port, "FRAME_HOST_DONE_V1", Duration::from_secs(35));
-                result?;
-                restored.context("data stored but shell terminal restoration was not confirmed")?;
+                exchange_console(&mut port, bytes, ready, stored)?;
             }
             Self::Raw { .. } => exchange_message(&mut port, bytes, ready, stored)?,
         }
@@ -139,6 +136,36 @@ pub(crate) fn exchange(stream: &mut (impl Read + Write + ?Sized), bytes: &[u8]) 
     exchange_message(stream, bytes, READY, STORED)
 }
 
+#[derive(Debug)]
+struct ShellCompleted;
+
+impl std::fmt::Display for ShellCompleted {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("frame shell completed before protocol acknowledgement")
+    }
+}
+
+impl std::error::Error for ShellCompleted {}
+
+fn exchange_console(
+    stream: &mut (impl Read + Write + ?Sized),
+    bytes: &[u8],
+    ready: &str,
+    stored: &str,
+) -> Result<()> {
+    let result = exchange_message(stream, bytes, ready, stored);
+    if result
+        .as_ref()
+        .err()
+        .is_some_and(|error| error.is::<ShellCompleted>())
+    {
+        return result;
+    }
+    let restored = wait_for(stream, "FRAME_HOST_DONE_V1", Duration::from_secs(35));
+    result?;
+    restored.context("data stored but shell terminal restoration was not confirmed")
+}
+
 fn exchange_message(
     stream: &mut (impl Read + Write + ?Sized),
     bytes: &[u8],
@@ -169,6 +196,9 @@ fn wait_for(stream: &mut (impl Read + ?Sized), marker: &str, timeout: Duration) 
                 let text = String::from_utf8_lossy(&line);
                 if text.trim_end_matches('\r') == marker {
                     return Ok(());
+                }
+                if text.trim_end_matches('\r') == "FRAME_HOST_DONE_V1" {
+                    return Err(ShellCompleted.into());
                 }
                 ensure!(
                     !matches!(
@@ -217,6 +247,45 @@ mod tests {
             Ok(())
         }
     }
+    #[test]
+    fn early_shell_completion_fails_without_waiting_for_it_twice() {
+        struct Terminal(Wire);
+        impl Read for Terminal {
+            fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+                assert!(
+                    self.0.input.position() < self.0.input.get_ref().len() as u64,
+                    "read again after the shell already confirmed completion"
+                );
+                self.0.read(bytes)
+            }
+        }
+        impl Write for Terminal {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.write(bytes)
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        for (response, expected_output) in [
+            ("FRAME_HOST_DONE_V1\n".to_owned(), &b""[..]),
+            (format!("{READY}\nFRAME_HOST_DONE_V1\n"), &b"{}\n"[..]),
+        ] {
+            let mut wire = Terminal(Wire {
+                input: Cursor::new(response.into_bytes()),
+                output: vec![],
+            });
+            let error = exchange_console(&mut wire, b"{}", READY, STORED).unwrap_err();
+            assert!(error.is::<ShellCompleted>());
+            assert_eq!(wire.0.output, expected_output);
+        }
+        let mut wire = Wire {
+            input: Cursor::new(format!("{READY}\n{STORED}\nFRAME_HOST_DONE_V1\n").into_bytes()),
+            output: vec![],
+        };
+        exchange_console(&mut wire, b"{}", READY, STORED).unwrap();
+    }
+
     #[test]
     fn requires_ready_and_storage_ack_not_echoed_commands() {
         let mut wire = Wire {

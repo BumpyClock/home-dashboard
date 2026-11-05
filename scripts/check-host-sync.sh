@@ -13,6 +13,9 @@ cargo fmt --all -- --check
 cargo test --locked -p calendar-sync -p frame-host-sync -p host-state -p host-command --all-features
 cargo clippy --locked -p calendar-sync -p frame-host-sync -p host-state -p host-command --all-targets --all-features -- -D warnings
 cargo build --locked -p frame-host-sync
+python3 scripts/test-host-termination.py
+python3 scripts/test-calendar-concurrency.py
+python3 scripts/test-hot-path-tooling.py
 python3 scripts/test-host-privacy.py
 
 if [[ "${1:-}" == "--with-frame" ]]; then

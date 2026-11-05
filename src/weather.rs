@@ -33,7 +33,7 @@ fn wet(code: i64) -> bool {
 
 fn hour_label(h: usize) -> String {
     let h = h % 24;
-    let n = if h % 12 == 0 { 12 } else { h % 12 };
+    let n = if h.is_multiple_of(12) { 12 } else { h % 12 };
     format!("{n} {}", if h < 12 { "am" } else { "pm" })
 }
 
@@ -221,7 +221,7 @@ mod tests {
             temp: "23°".into(),
         };
         let model = ModelRc::new(VecModel::from(vec![slot.clone()]));
-        assert!(hourly_matches(&model, &[slot.clone()]));
+        assert!(hourly_matches(&model, std::slice::from_ref(&slot)));
         assert!(!hourly_matches(&model, &[]));
         for changed in [
             HourSlot {

@@ -23,6 +23,7 @@ slint::slint! {
 
     export component StageWindow inherits Window {
         in property <bool> ready: true;
+        in property <bool> running: true;
         out property <int> current: stage.current-index;
         out property <int> previous: stage.previous-index;
         out property <bool> moving: stage.moving;
@@ -32,7 +33,7 @@ slint::slint! {
         stage := PhotoStage {
             width: 100px;
             height: 100px;
-            running: true;
+            running: root.running;
             autoplay: false;
             slide: true;
             interval: 120s;
@@ -182,6 +183,65 @@ fn rapid_requests_while_loading_coalesce_to_the_latest_destination() {
 }
 
 #[test]
+fn stopping_snaps_to_unready_requests_but_resuming_waits_for_pixels() {
+    isolated(|scene| {
+        scene.ready(false);
+        scene.request(1);
+        scene.assert_idle(0);
+        scene.window.set_running(false);
+        scene.advance(Duration::from_millis(10));
+        scene.assert_idle(1);
+        scene.request(2);
+        scene.assert_idle(2);
+        scene.window.set_running(true);
+        scene.request(3);
+        scene.advance(Duration::from_secs(2));
+        scene.assert_idle(2);
+        scene.ready(true);
+        assert_eq!(scene.window.get_current(), 3);
+        assert_eq!(scene.window.get_previous(), 2);
+        assert!(scene.window.get_moving());
+        scene.advance(Duration::from_secs(2));
+        scene.assert_idle(3);
+    });
+}
+
+#[test]
+fn rapid_requests_while_moving_preserve_outgoing_slot_and_wait_for_latest_pixels() {
+    isolated(|scene| {
+        scene.request(1);
+        assert!(scene.window.get_moving());
+        scene.ready(false);
+        scene.request(2);
+        scene.request(3);
+        assert_eq!(scene.window.get_current(), 1);
+        assert_eq!(scene.window.get_previous(), 0);
+        assert_eq!(
+            (scene.window.get_slot_0(), scene.window.get_slot_1()),
+            (0, 1)
+        );
+        assert!(scene.window.get_moving());
+        scene.advance(Duration::from_secs(2));
+        scene.assert_idle(1);
+        scene.ready(true);
+        assert_eq!(scene.window.get_current(), 3);
+        assert_eq!(scene.window.get_previous(), 1);
+        assert_eq!(
+            (scene.window.get_slot_0(), scene.window.get_slot_1()),
+            (3, 1)
+        );
+        assert!(scene.window.get_moving());
+        scene.advance(Duration::from_secs(2));
+        scene.assert_idle(3);
+        assert!(!scene
+            .events
+            .borrow()
+            .iter()
+            .any(|event| event.0 == 2 && event.1 == 2));
+    });
+}
+
+#[test]
 fn disabling_motion_still_waits_for_destination_pixels() {
     isolated(|scene| {
         scene.ready(false);
@@ -191,6 +251,12 @@ fn disabling_motion_still_waits_for_destination_pixels() {
         scene.assert_idle(0);
         scene.ready(true);
         scene.assert_idle(1);
+        scene.ready(false);
+        scene.request(2);
+        scene.advance(Duration::from_secs(2));
+        scene.assert_idle(1);
+        scene.ready(true);
+        scene.assert_idle(2);
     });
 }
 

@@ -169,6 +169,7 @@ fn test_state(calendar: Calendar) -> State {
             clock24: true,
             ..Settings::default()
         }),
+        theme_transition: Timer::default(),
         chores: RefCell::new(vec![]),
         list: RefCell::new(vec![]),
         calendar,

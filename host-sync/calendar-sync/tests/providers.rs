@@ -3,12 +3,17 @@
 use calendar_sync::sources::{Config, SourceConfig};
 use calendar_sync::EventTime;
 use serde_json::json;
-use std::os::unix::fs::PermissionsExt;
 
 fn executable(dir: &std::path::Path, body: &str) -> String {
     let path = dir.join("provider");
-    std::fs::write(&path, format!("#!/bin/sh\nset -eu\n{body}\n")).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::write(dir.join("provider.body"), format!("{body}\n")).unwrap();
+    if !path.exists() {
+        std::os::unix::fs::symlink(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/provider.sh"),
+            &path,
+        )
+        .unwrap();
+    }
     path.to_str().unwrap().into()
 }
 

@@ -438,10 +438,9 @@ mod tests {
         let full = dir.0.join("full");
         std::fs::create_dir_all(&full).unwrap();
         let old = "0000000000000000.jpg";
-        std::fs::File::create(full.join(old))
-            .unwrap()
-            .set_len(128 * 1024 * 1024)
-            .unwrap();
+        let old_file = std::fs::File::create(full.join(old)).unwrap();
+        old_file.set_len(128 * 1024 * 1024).unwrap();
+        old_file.set_modified(SystemTime::UNIX_EPOCH).unwrap();
         let current = "ffffffffffffffff.jpg";
         store.save_full(current, &gradient(64), None).unwrap();
         assert!(!full.join(old).exists());

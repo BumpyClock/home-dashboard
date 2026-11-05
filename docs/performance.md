@@ -93,6 +93,13 @@ decoding still reads the whole file, so the saving is bounded. The
 but the visible window alone needs 64 entries (14 MiB), so shrinking
 would save at most 14 MiB and add reloads while scrolling back.
 
+Foreground thumbnail persistence now starts after display publication is queued.
+JPEG encoding, flush, fsync, and rename can overlap that UI callback without
+adding a writer or more decode workers. The worker retains its photo claim
+until both persistence and publication complete. Deferred writes recheck the
+source version; optional write failure still does not discard ready pixels.
+Warm-cache work checks for urgent display demand before starting a decode.
+
 Grid thumbnails persist on disk as 270×270 JPEGs (see `FRAME_THUMB_CACHE`),
 named by a hash of the photo's path, modification time, size, and the
 stored format. A photo is decoded for its thumbnail once per

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Frame Host Sync</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <div><p class="eyebrow">FAMILY FRAME</p><h1>Host sync</h1></div>
+    </header>
+    <section id="sync-status" class="status-card" aria-label="Sync status">
+      <p class="status-line" role="status"><span id="dot" class="dot"></span><strong id="phase">Connecting…</strong></p>
+      <p id="activity">Reading sync status.</p>
+      <dl>
+        <div><dt>Last synced</dt><dd id="last">Not yet</dd></div>
+        <div><dt>Source events</dt><dd id="events">—</dd></div>
+        <div><dt>Lock heartbeat</dt><dd id="privacy">Stopped</dd></div>
+      </dl>
+    </section>
+    <section class="configuration" aria-label="Configuration">
+      <h2>Configuration</h2>
+      <p id="config">~/.config/home-dash/host-sync.json</p>
+      <div class="actions">
+        <button id="edit" class="secondary" disabled>Edit configuration</button>
+        <button id="choose" class="secondary" disabled>Import JSON…</button>
+      </div>
+      <div id="editor" hidden>
+        <p class="editor-hint">Set <code>connection.port</code> to your frame’s USB port. Configure calendar sources below.</p>
+        <label for="config-text">Host sync JSON</label>
+        <textarea id="config-text" rows="12" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+        <div class="actions">
+          <button id="save">Save configuration</button>
+          <button id="cancel" class="secondary">Cancel</button>
+        </div>
+      </div>
+    </section>
+    <div id="errors" role="alert" hidden></div>
+    <div id="sync-actions" class="actions">
+      <button id="toggle" disabled>Start sync</button>
+      <button id="sync" class="secondary" disabled>Sync now</button>
+    </div>
+    <footer>Closing this window keeps sync running in the tray.<br>Use the tray menu to quit.</footer>
+  </main>
+</body>
+</html>

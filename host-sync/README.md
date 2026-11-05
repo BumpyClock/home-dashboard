@@ -4,7 +4,9 @@ Cross-platform Rust host application. Calendar sync is its first capability, not
 
 ```text
 host-sync/                    frame-host-sync executable
-  src/main.rs                 configuration and capability commands
+  src/main.rs                 CLI capability commands
+  src/lib.rs                  shared configuration and background sync lifecycle
+  desktop/                    Tauri 2 tray app and local status window
   src/serial.rs               shared serial transport
   calendar-sync/              calendar sources, event model, merge, snapshots, receiver
   host-state/                 lock-state messages and frame-side visibility lease
@@ -12,6 +14,52 @@ host-sync/                    frame-host-sync executable
 ```
 
 The frame depends on `calendar-sync` without its `host` feature. It does not need WorkIQ, mcporter, or host-side authentication. Future host capabilities can sit beside calendar sync without depending on its event model.
+
+## Desktop tray app
+
+The Tauri 2 app runs calendar sync and host lock heartbeats without an open terminal. The existing CLI remains available. Both use the same Rust sync engine and serial transport. No web server, Node runtime, or frontend build step is needed by the installed app.
+
+```sh
+cargo run -p frame-host-sync-desktop
+```
+
+1. Launch the app. It creates `~/.config/home-dash/host-sync.json` and opens its configuration editor. No file picker or existing config is required.
+2. Set `connection.port` to the frame's USB port and configure the calendar sources. **Save configuration**, then **Start sync**. The starter uses the structured Microsoft Calendar MCP source; authenticate/configure that server separately or import another source configuration.
+3. Close the window. Sync continues in the system tray or macOS menu bar.
+4. Use the tray menu to reopen status, sync now, stop, or quit.
+
+The status window shows the last successful send, source-event count, and separate calendar/heartbeat errors. It does not display calendar titles or snapshot contents. Errors retain the frame's last good calendar. Stop does not clear frame data; privacy-enabled frames hide host events once heartbeats expire.
+
+The desktop always saves to `~/.config/home-dash/host-sync.json`, including on Windows beneath the user's home directory. It never replaces an existing file on startup. New Unix directories/files use private permissions. The initial port is deliberately blank, so a fresh install cannot sync or clear frame data until configured. **Edit configuration** edits the default file in the app. **Import JSON…** copies a validated existing host-sync JSON configuration into that file, preserving relative JSON-source paths by making them absolute. Saves and imports write and sync a private temporary file before atomically replacing the configuration. Invalid data or a failed write leaves the previous file unchanged. Canceling Import leaves the editor and its unsaved changes untouched; only a completed import reloads it. Stop sync before editing or importing.
+
+Later launches resume a valid configured file and start hidden. An unreadable or invalid configuration opens the window with an error and its editor. Stop and start to reload external edits, or restart after completing an externally edited first-run configuration. Launching another desktop instance opens the existing window instead of starting another watcher. Do not run the CLI watcher or another serial client at the same time.
+
+The desktop uses the frame's Linen palette, Instrument Serif display face, Inter body face, and shared spacing/radius/type tokens. `python3 scripts/sync-host-sync-design.py` exports them from `ui/theme.slint`, `ui/tokens.slint` and `ui/fonts/`. Desktop checks reject stale exports, font drift, and independent raw colors/OS palettes. The desktop does not change theme with the OS.
+
+Stopping or quitting waits for an in-flight serial exchange or provider acquisition and its subprocess cleanup. The window remains responsive and says **Stopping sync**. No new calendar transfer begins after the watcher observes Stop. Provider deadlines still apply; there is no forced subprocess termination on Stop. This app does not yet register itself to launch at OS login.
+
+A Finder/Start-menu launch may have a different PATH and environment from your terminal. Use absolute provider executable paths and ensure any configured `connection.password_env` is present in the app's launch environment. The app never prompts for or stores serial passwords. Authenticate MCP/WorkIQ separately before background use.
+
+### Package the desktop app
+
+Install the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS. macOS needs Xcode command-line tools. Windows needs the MSVC C++ build tools and WebView2. On Ubuntu/Debian, install GTK/WebKit and tray development packages before building:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf
+```
+
+A Linux desktop also needs a system tray implementation, such as an AppIndicator extension on GNOME.
+
+The plain Cargo command above runs the app from source. To produce an app bundle or installer, install the Tauri 2 CLI once, then run from the desktop crate:
+
+```sh
+cargo install tauri-cli --version '^2' --locked
+cd host-sync/desktop
+cargo tauri build
+```
+
+Bundles are written under Cargo's target directory, configured by this repository as `../photoframe-proto-build/release/bundle/` relative to the repository root. Signing/notarization and Windows installer verification are separate release steps. Icons are committed; regenerate with `python3 scripts/generate-host-sync-icons.py` from the repository root when needed (requires Pillow).
 
 ## Build and configure
 
@@ -25,7 +73,9 @@ cargo run -p frame-host-sync -- calendar sync --config host-sync/examples/calend
 cargo run -p frame-host-sync -- calendar watch --config host-sync/examples/calendar-mcp.json
 ```
 
-`preview` prints the complete wire snapshot without opening serial. Treat its output as private calendar data. `sync` sends once. `watch` refreshes the calendar at `interval_seconds` and independently reports the host's lock state. Calendar fetching runs on a worker; one main-loop writer owns serial so slow provider calls do not block lock heartbeats. Ctrl+C stops it. Restart to reload configuration.
+`preview` prints the complete wire snapshot without opening serial. Treat its output as private calendar data. `sync` sends once. `watch` refreshes the calendar at `interval_seconds` and independently reports the host's lock state. Calendar fetching runs on a worker and starts before lock probing or serial login; privacy status is still sent before calendar data. One main-loop writer owns serial so slow provider calls do not block lock heartbeats. The loop wakes on completed acquisition instead of sleeping through ready results; its two-second receive timeout retains periodic lock polling. Ctrl+C requests a graceful stop. Restart to reload configuration.
+
+Calendar commands handle Ctrl+C and, on Unix, SIGTERM without abandoning owned provider processes. Stop waits for the current acquisition and subprocess cleanup under their existing deadlines; it does not force providers to exit early. Interrupted `preview` does not print its result, and interrupted `sync`/`watch` does not start a new calendar transfer after observing Stop. A serial exchange already in progress finishes before exit so its terminal can be restored. Repeated stop signals do not bypass cleanup. JSON file reads still have no I/O deadline, so a stalled read can delay shutdown. SIGKILL and other forced process termination cannot run this cleanup.
 
 Copy an example to a private file and edit `connection.port`. Use the exact name from `ports`. Typical names are `/dev/cu.usbmodem*` on macOS, `/dev/ttyACM0` on Linux, and `COM3` on Windows. The app uses 115200, 8N1 and software flow control. Linux users need permission to open the port. No libudev development package is needed to build the host.
 
@@ -33,7 +83,7 @@ Connection can be omitted for `preview`. Source file paths are relative to the c
 
 `calendar.days` defaults to 7, allowed 1 to 31. Queries start at today's first valid local instant and end at the first valid instant `days` calendar days later, exclusive. This is normally midnight. If a DST change skips midnight, the boundary uses the first valid time on that date; ambiguous midnight uses its earlier instant. An entirely skipped civil date fails the cycle instead of silently shifting the window. Today is included in the count. There is no yesterday padding. Each boundary is converted separately to UTC, preserving daylight-saving changes. `calendar.time_zone` optionally selects an IANA zone such as `America/Los_Angeles`; otherwise the host's system zone defines today. Set it to the frame's configured zone when host and frame differ.
 
-Keep private configuration and live captures under the repository-ignored `.local/` directory, not beside committed examples. Do not force-add those files.
+Desktop configuration belongs in `~/.config/home-dash/host-sync.json`. Keep other private CLI configuration and live captures under the repository-ignored `.local/` directory, not beside committed examples. Do not force-add those files.
 
 `interval_seconds` defaults to 300, allowed 30 to 86400. Empty `sources` explicitly clears host calendar data on the next successful sync.
 
@@ -101,6 +151,8 @@ The default `console` connection keeps the frame's `ttyGS0` login/getty intact. 
 4. Wait for `FRAME_CALENDAR_READY_V1`, send one compact JSON line, then wait for `FRAME_CALENDAR_STORED_V1` and terminal restoration.
 5. Release the port between cycles. The existing logged-in shell is retained, like the deployment tooling.
 
+If the shell finishes before READY or the persistence ACK, the exchange fails immediately. That terminal-restoration marker is not an ACK and is not awaited a second time.
+
 Use the existing secret-management workflow to populate the password environment variable. The app does not read `.claude/frame-credentials.json` or copy its password into another file.
 
 The new frame executable must be deployed before syncing. Receiver runs as `diag` and writes `~/.local/share/family-frame/calendar-host.json`. The updated `deploy/photoframe-proto.service` reads that same path through `FRAME_CALENDAR_HOST`. An existing service installation needs that environment setting when this build is deployed. See [serial deployment](../docs/serial-deploy.md). No deployment or service changes are performed by the host app.
@@ -126,7 +178,7 @@ Host and direct providers own separate files. A host replacement never deletes d
 
 Deduplication first matches a shared iCalendar UID plus occurrence start. End-time changes do not create another copy. Without a shared UID on both records, fallback matches normalized title plus exact time interval across different sources. Distinct known UIDs and recurring occurrences at different starts remain separate. All known UID occurrences and their title/time aliases are indexed before matching records without UIDs. Each occurrence retains every contributing source, so a second distinct event from the same source cannot disappear through fallback matching. Earlier inputs still choose display fields, even when their record lacks a UID. Matching by title/time can still merge unrelated meetings when one lacks a UID. Supply UIDs wherever available.
 
-The frame reloads files off the UI thread every two seconds and applies updates on its UI thread within another second. Home and Calendar classify, order and count down timed events using their UTC instants and one clock sample per refresh. Local times are presentation only, including during repeated or skipped DST hours. Timed events display in the frame's configured zone. Overnight events appear on each intersected local day. All-day rows show “All day”; timed events take precedence in “next up”. No fake calendar events or attendee assignments remain. Home agenda, tomorrow and screensaver's next-up text use the real inputs. Home's Tomorrow preview and its count include timed events only. Calendar provides a date-grouped upcoming agenda for the next seven days, retaining all-day events there, omitting ended meetings and showing the latest input sync time. It does not request additional dates from the host when scrolled.
+The frame reloads calendar files off the UI thread every two seconds and applies updates on its UI thread within another second. Host privacy status has an independent two-second observer and a capacity-one latest-observation mailbox, so calendar reads, merges, and publication backpressure do not delay status observation. Observation-time monotonic timestamps survive the mailbox; consuming an old unlock cannot extend its lease. Home and Calendar classify, order and count down timed events using their UTC instants and one clock sample per refresh. Local times are presentation only, including during repeated or skipped DST hours. Timed events display in the frame's configured zone. Overnight events appear on each intersected local day. All-day rows show “All day”; timed events take precedence in “next up”. No fake calendar events or attendee assignments remain. Home agenda, tomorrow and screensaver's next-up text use the real inputs. Home's Tomorrow preview and its count include timed events only. Calendar provides a date-grouped upcoming agenda for the next seven days, retaining all-day events there, omitting ended meetings and showing the latest input sync time. It does not request additional dates from the host when scrolled.
 
 Before the first valid snapshot, the UI says calendar data is not synced. A valid empty snapshot means the calendar is clear. After a read/parse error, the last valid in-memory data is retained and the error is logged. The persisted last-good host snapshot survives app restarts and cable removal. Calendar shows the last sync timestamp, but there is no automatic expiry policy. To clear data, send an empty valid snapshot rather than deleting a file.
 
@@ -175,7 +227,9 @@ A snapshot is one UTF-8 JSON object followed by LF:
 
 All-day `time` is `{"kind":"all_day","start":"2026-11-02","end":"2026-11-03"}`. End is exclusive and must follow start. IDs must be unique within a source. Sources must have unique IDs within each snapshot. UID is optional.
 
-Each snapshot completely replaces the host group, including removals and cancellations. Fetch failure in any configured source prevents the entire send. This retains old data rather than accidentally clearing a failed source, but also delays healthy source updates until the next wholly successful cycle.
+Each snapshot completely replaces the host group, including removals and cancellations. Up to two sources are acquired concurrently. Completed workers can start the next source without waiting for the other worker. Results retain configuration order, not completion order, so display precedence does not change. Zero or one source needs no acquisition worker threads.
+
+Fetch failure in any configured source prevents the entire send. Workers stop taking new sources when they observe a failure; already-started reads finish under their existing limits before the cycle returns. Later read-only sources may therefore have started before an earlier source fails. When multiple started sources fail, the earliest configured source's error is reported. A slow in-flight source can delay that error return; there is no sibling cancellation. JSON sources retain their byte cap and have no read deadline. This retains old data rather than accidentally clearing a failed source, but also delays healthy source updates until the next wholly successful cycle.
 
 Maximum snapshot size is 1 MiB, at most 32 sources and 5000 events. Provider stdout and stderr are each bounded at 4 MiB. One 120-second deadline covers execution and draining both pipes, including pipes inherited by descendants after the immediate child exits. Success and failure both clean up the command's owned Unix process group or Windows Job Object. Cleanup permits at most 100 ms to reap the leader; output readers are never joined without a deadline. Version and event validation happen before replacement. The receiver writes/syncs a temporary file in the same directory and replaces the old file before ACK. Invalid, incomplete or oversized messages do not replace the last good file. Replaying a snapshot replaces rather than appends.
 
@@ -186,8 +240,15 @@ Only one host should send to a frame. There is no multi-host arbitration or time
 ```sh
 bash scripts/check-host-sync.sh
 bash scripts/check-host-sync.sh --with-frame
+bash scripts/check-host-sync-desktop.sh
 cargo test -p photoframe_proto
 ```
+
+Desktop checks build and lint the real Tauri binary, verify default configuration creation/preservation, rejected saves, Unix child-isolated partial-write failures and relative-path imports, exercise the shared watcher's stop-without-publication behavior, check generated frame design assets, and run dependency-free Node tests of first-run editing, status rendering, UI controls, and canceled/failed imports preserving unsaved edits. They require Node for tests only, plus the OS development packages above. Tray visibility, close-to-background, native file picking, and reopening require a desktop session.
+
+Host checks include `scripts/test-host-termination.py`, which gates real fixture providers and descendants while interrupting `preview`, `sync`, and `watch` with SIGINT and SIGTERM. It verifies that repeated signals retain cleanup ownership, interrupted results are not published even when providers fail, and owned descendants are cleaned up at shutdown. It uses loopback sockets, not serial hardware or live accounts.
+
+Host checks also include `scripts/test-calendar-concurrency.py`, which uses gated fixture processes to verify two-source overlap, bounded work-conserving dispatch, configuration-order results, shared query windows, deterministic failures, and no partial publication. Its optional `--benchmark` mode measures four synthetic delayed providers, not live-provider or end-to-end frame latency. The Linux privacy PTY test also gates the first serial exchange on acquisition startup and checks that privacy status is delivered first.
 
 Host checks verify `.local/` protection in an isolated Git repository without machine-specific ignore rules. They also cover missing/blank subjects, UTF-8 display-field limits, skipped/ambiguous midnight boundaries, source-order deduplication permutations, inherited-pipe timeouts, stdout/stderr limits, descendant cleanup, and the shared lock-state lease/receiver tests. On Linux, `scripts/test-host-privacy.py` runs the real watcher against a PTY and a slow fixture CLI, asserting that status heartbeats continue while calendar fetching is blocked. Host checks do not build Slint. `--with-frame` additionally exercises the real frame receiver and file reload logic. On Linux, it uses a PTY to test host login, serial framing, a payload larger than canonical TTY limits, receiver persistence, empty replacement and source failure. On macOS, serialport's baud ioctl rejects PTYs, so this script uses subprocess pipes instead. Rust integration tests also exercise the wire exchange over local sockets. The frame's desktop tests include a headless Slint check of agenda, duplicate removal, all-day rows, tomorrow, next-up and empty states.
 

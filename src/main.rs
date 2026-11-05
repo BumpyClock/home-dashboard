@@ -18,6 +18,8 @@ mod screensaver;
 mod settings;
 #[cfg(all(feature = "frame", target_os = "linux"))]
 mod shutdown;
+#[cfg(all(test, feature = "desktop"))]
+mod theme_transition_tests;
 mod weather;
 
 use calendar::{Calendar, Event};
@@ -91,6 +93,7 @@ struct Models {
 
 struct State {
     settings: Cell<Settings>,
+    theme_transition: Timer,
     chores: RefCell<Vec<household::Chore>>,
     list: RefCell<Vec<household::ListEntry>>,
     calendar: Calendar,
@@ -550,18 +553,24 @@ fn apply_settings(app: &AppWindow, st: &State, animate_theme: bool) {
     f.set_timezone_index(set.timezone as i32);
     f.set_hide_host_calendar_when_locked(set.hide_host_calendar_when_locked);
 
+    st.theme_transition.stop();
     let palette = settings::themes()[set.theme].1.clone();
     if animate_theme && theme.get_motion() && theme.get_c() != palette {
         f.set_dip(true);
         let weak = app.as_weak();
-        Timer::single_shot(Duration::from_millis(210), move || {
-            if let Some(app) = weak.upgrade() {
-                app.global::<Theme>().set_c(palette);
-                app.global::<Frame>().set_dip(false);
-            }
-        });
+        st.theme_transition.start(
+            TimerMode::SingleShot,
+            Duration::from_millis(210),
+            move || {
+                if let Some(app) = weak.upgrade() {
+                    app.global::<Theme>().set_c(palette.clone());
+                    app.global::<Frame>().set_dip(false);
+                }
+            },
+        );
     } else {
         theme.set_c(palette);
+        f.set_dip(false);
     }
 }
 
@@ -667,11 +676,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    let calendar = Calendar::from_env()?;
     let st = Rc::new(State {
         settings: Cell::new(Settings::load()),
+        theme_transition: Timer::default(),
         chores: RefCell::new(household::demo_chores(now().weekday())),
         list: RefCell::new(household::demo_list()),
-        calendar: Calendar::from_env()?,
+        calendar,
         models,
         screensaver: RefCell::new(None),
     });

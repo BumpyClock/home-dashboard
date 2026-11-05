@@ -1,4 +1,4 @@
-use super::{save_pending_full, trace, PendingFull, ThumbStore};
+use super::{trace, Buffer, ThumbStore, ThumbnailKey};
 use frame_trace::Field;
 use std::collections::HashSet;
 use std::sync::{mpsc, Arc, Mutex};
@@ -7,6 +7,50 @@ use std::time::Instant;
 // Includes the buffer being encoded. Cache writes may be dropped under pressure.
 const MAX_BYTES: usize = 24 * 1024 * 1024;
 const MAX_ITEMS: usize = 8;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Destination {
+    Full,
+    Thumb,
+}
+
+pub(super) struct PendingWrite {
+    pub trace: Option<trace::Context>,
+    pub key: ThumbnailKey,
+    pub buffer: Buffer,
+}
+
+impl PendingWrite {
+    pub fn save(self, store: &ThumbStore, destination: Destination) {
+        if ThumbnailKey::read(&self.key.path, self.key.size, self.key.baked)
+            .ok()
+            .as_ref()
+            != Some(&self.key)
+        {
+            trace::emit(
+                self.trace,
+                "photo.store.cancel",
+                &[Field::Str("reason", "source_changed")],
+            );
+            return;
+        }
+        let (name, result) = match destination {
+            Destination::Full => {
+                let name = self.key.stored_full_name();
+                let result = store.save_full(&name, &self.buffer, self.trace);
+                (name, result)
+            }
+            Destination::Thumb => {
+                let name = self.key.stored_name();
+                let result = store.save(&name, &self.buffer, self.trace);
+                (name, result)
+            }
+        };
+        if let Err(error) = result {
+            eprintln!("[photos] cannot store {destination:?} image {name}: {error}");
+        }
+    }
+}
 
 pub(super) struct CacheStore {
     pub disk: Arc<ThumbStore>,
@@ -18,7 +62,7 @@ impl CacheStore {
         let disk = Arc::new(ThumbStore::from_env()?);
         let writer_disk = Arc::clone(&disk);
         let writer = CacheWriter::new(MAX_BYTES, MAX_ITEMS, move |pending| {
-            save_pending_full(&writer_disk, pending);
+            pending.save(&writer_disk, Destination::Full);
         });
         Some(Self { disk, writer })
     }
@@ -30,7 +74,7 @@ struct State {
 }
 
 struct Item {
-    pending: PendingFull,
+    pending: PendingWrite,
     name: String,
     bytes: usize,
     queued: Option<Instant>,
@@ -47,7 +91,7 @@ impl CacheWriter {
     pub(super) fn new(
         max_bytes: usize,
         max_items: usize,
-        write: impl Fn(PendingFull) + Send + 'static,
+        write: impl Fn(PendingWrite) + Send + 'static,
     ) -> Self {
         let (sender, receiver) = mpsc::channel::<Item>();
         let state = Arc::new(Mutex::new(State {
@@ -75,7 +119,7 @@ impl CacheWriter {
         }
     }
 
-    pub(super) fn enqueue(&self, pending: PendingFull) {
+    pub(super) fn enqueue(&self, pending: PendingWrite) {
         let context = pending.trace;
         let name = pending.key.stored_full_name();
         let bytes = pending.buffer.as_bytes().len();
@@ -128,8 +172,8 @@ mod tests {
     use crate::photos::{Buffer, ThumbnailKey};
     use std::time::{Duration, SystemTime};
 
-    fn pending(name: &str) -> PendingFull {
-        PendingFull {
+    fn pending(name: &str) -> PendingWrite {
+        PendingWrite {
             trace: None,
             key: ThumbnailKey {
                 path: name.into(),

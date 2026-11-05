@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Local status window. Native dialogs and sync operations stay in Rust.",
+  "windows": ["main"],
+  "permissions": []
+}

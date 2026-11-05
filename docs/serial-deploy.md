@@ -17,10 +17,13 @@ through the frame's USB serial console (`ttyGS0`, exposed as
   `pkexec --disable-internal-agent /usr/local/sbin/pf-maintenance shell -c '<cmd>'`.
 - SSH is disabled; the frame's WiFi (10.149.100.0/24) is not reachable
   from the Mac, so serial is the only channel.
-- `root` returns after about 60 s. Run longer jobs detached
-  (`setsid -f sh -c '...' </dev/null >/dev/null 2>&1`) and read their
-  output later as root: files written under `pf-maintenance` are not
-  readable by `diag`.
+- `root` returns when its unique completion marker arrives, without a fixed
+  60-second wait. Authentication and command completion share a 60-second
+  deadline. A timeout fails explicitly and closes the host port; it does not
+  cancel an unknown in-flight command. Run longer jobs detached
+  (`setsid -f sh -c '...' </dev/null >/dev/null 2>&1`). This example discards
+  stdout and stderr; redirect them to a log if needed. Files written under
+  `pf-maintenance` are not readable by `diag`.
 - Only one process can hold the port. `screen /dev/cu.usbmodem*` left
   attached blocks scripted access — close it first.
 
@@ -28,7 +31,9 @@ through the frame's USB serial console (`ttyGS0`, exposed as
 
 `scripts/frame-console.py` (needs `pyserial`: `pip install pyserial`, or
 run it as `uv run --with pyserial python3 scripts/frame-console.py ...`)
-drives the console:
+drives the console. Existing shell prompts bypass the login wait; fresh
+logins still complete authentication before commands are sent. Fixture-only
+wait and authentication checks run with `python3 scripts/test-hot-path-tooling.py`.
 
 ```sh
 python3 scripts/frame-console.py shell "uname -a"          # as diag
@@ -58,6 +63,11 @@ the frame's installed packages — check with
 `frame-console.py shell "pacman -Q glibc mesa libinput ..."` after
 upgrading the frame, and confirm the sysroot's glibc max symbol
 (printed by the build) does not exceed the frame's glibc.
+
+The resolver fetches `core` and `extra` databases concurrently with two
+workers, then merges in that order to preserve `core` precedence. A failed
+database fetch prevents resolution output. Package download and shared-sysroot
+extraction remain ordered.
 
 Every package is checked against the SHA256 in the mirror's repo database
 (`scripts/resolve-alarm-packages.py`) before it is unpacked; a mismatch stops

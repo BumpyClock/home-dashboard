@@ -399,7 +399,7 @@ mod tests {
         assert_eq!(name.len(), 20);
         assert_ne!(
             name,
-            ThumbStore::file_name(path, time + Duration::from_nanos(1), 10, 270)
+            ThumbStore::file_name(path, time + Duration::from_micros(1), 10, 270)
         );
         assert_ne!(name, ThumbStore::file_name(path, time, 11, 270));
         assert_ne!(name, ThumbStore::file_name(path, time, 10, 271));
@@ -438,10 +438,10 @@ mod tests {
         let full = dir.0.join("full");
         std::fs::create_dir_all(&full).unwrap();
         let old = "0000000000000000.jpg";
-        std::fs::File::create(full.join(old))
-            .unwrap()
-            .set_len(128 * 1024 * 1024)
-            .unwrap();
+        let old_file = std::fs::File::create(full.join(old)).unwrap();
+        old_file.set_len(128 * 1024 * 1024).unwrap();
+        old_file.set_modified(SystemTime::UNIX_EPOCH).unwrap();
+        drop(old_file);
         let current = "ffffffffffffffff.jpg";
         store.save_full(current, &gradient(64), None).unwrap();
         assert!(!full.join(old).exists());

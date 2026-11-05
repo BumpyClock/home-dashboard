@@ -53,7 +53,7 @@ Useful env vars:
 | Weather | `src/weather.rs` | Live Open-Meteo |
 | Settings | `src/settings.rs` | Themes, fonts, text size, clock, motion, photo transition, screensaver delay; JSON on disk |
 
-[Host sync setup, source configuration, serial protocol and checks](host-sync/README.md) live under `host-sync/`. The `frame-host-sync` Rust app owns capability commands and transport; its smaller `calendar-sync` crate owns calendar-specific data and sources. No host-side Slint dependency. Before the first valid snapshot, the agenda shows a not-synced state, not demo meetings.
+[Host sync setup, source configuration, serial protocol and checks](host-sync/README.md) live under `host-sync/`. The `frame-host-sync-desktop` Tauri app runs from the system tray with a status window and close-to-background behavior. Run it with `cargo run -p frame-host-sync-desktop`. The `frame-host-sync` CLI remains available; both share configuration, sync lifecycle and transport. The smaller `calendar-sync` crate owns calendar-specific data and sources. No host-side Slint dependency. Before the first valid snapshot, the agenda shows a not-synced state, not demo meetings.
 
 Everything the UI shows lives in the `Frame` global (`ui/data.slint`);
 Rust fills it, the UI never computes data.
@@ -95,9 +95,15 @@ Atkinson Hyperlegible), text size (100/112/125%), 24/12-hour clock, motion
 delay (Never / 1 / 2 / 5 min), and time zone (System or a curated IANA
 zone; drives the clock, agenda, and night windows). Applies live, saved on
 change. Theme switches dip
-through the page color.
+through the page color. Rapid selections replace the pending swap, so only the
+latest selected palette is applied. Disabling motion or returning to the displayed
+palette cancels the dip immediately.
 
-Calendar privacy adds **Hide host calendar when computer locks**. When On, host-origin events are hidden across Home, Tomorrow, Calendar and screensaver text while the host is locked or its heartbeat is missing. Direct on-device calendars remain visible. Unlocking restores cached host data. It requires the updated host app running `calendar watch`; a 20-second heartbeat timeout also hides data after sleep/disconnect. The option defaults to Off and is saved on the frame. This hides display data, not its stored files. See [host privacy details and platform limits](host-sync/README.md#hide-host-calendars-when-the-computer-locks).
+[State protocols and regression checks](docs/state-protocols.md) document theme
+transition ownership, photo presentation/publication ordering, and host privacy
+leases.
+
+Calendar privacy adds **Hide host calendar when computer locks**. When On, host-origin events are hidden across Home, Tomorrow, Calendar and screensaver text while the host is locked or its heartbeat is missing. Direct on-device calendars remain visible. Unlocking restores cached host data. It requires the updated host app running desktop background sync or CLI `calendar watch`; a 20-second heartbeat timeout also hides data after sleep/disconnect. The option defaults to Off and is saved on the frame. This hides display data, not its stored files. See [host privacy details and platform limits](host-sync/README.md#hide-host-calendars-when-the-computer-locks).
 
 ## Performance on the frame
 

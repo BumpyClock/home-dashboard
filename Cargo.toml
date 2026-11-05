@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [workspace]
-members = ["host-sync", "host-sync/calendar-sync", "host-sync/host-state", "host-sync/host-command"]
+members = ["host-sync", "host-sync/calendar-sync", "host-sync/host-state", "host-sync/host-command", "host-sync/desktop"]
 resolver = "2"
 
 [dependencies]

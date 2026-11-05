@@ -14,10 +14,12 @@ use crate::photo_load_state::{PhotoLoadState, PhotoSize};
 use crate::{AppWindow, Frame, Photo, Saver};
 
 mod cache_writer;
+mod completion;
 mod prewarm;
 mod resample;
 mod thumb_store;
 pub(crate) mod trace;
+use cache_writer::{Destination, PendingWrite};
 use thumb_store::ThumbStore;
 
 const SCRIM_SVG: &[u8] = include_bytes!("../ui/images/photo-scrim.svg");
@@ -825,7 +827,7 @@ impl Shared {
     fn filled(&self, index: usize, kind: Kind, spec: PhotoSize) -> bool {
         self.have
             .get(&(index, kind))
-            .map_or(false, |slot| slot.size() == spec)
+            .is_some_and(|slot| slot.size() == spec)
     }
 
     fn step(&mut self, count: usize) -> Step {
@@ -1031,17 +1033,14 @@ fn decode_for<'a>(
     slot.as_ref()?.as_ref().map(|decoded| &decoded.image)
 }
 
-struct PendingFull {
-    trace: Option<trace::Context>,
-    key: ThumbnailKey,
-    buffer: Buffer,
+#[derive(Default)]
+struct RenderResult {
+    outcomes: Vec<(Kind, PhotoSize, Rendered)>,
+    full: Option<PendingWrite>,
+    thumb: Option<PendingWrite>,
 }
 
-fn render(
-    path: &Path,
-    job: &Job,
-    wanted: impl Fn(Kind, PhotoSize) -> bool,
-) -> (Vec<(Kind, PhotoSize, Rendered)>, Option<PendingFull>) {
+fn render(path: &Path, job: &Job, wanted: impl Fn(Kind, PhotoSize) -> bool) -> RenderResult {
     render_with_store(path, job, wanted, store().map(|store| &*store.disk))
 }
 
@@ -1050,10 +1049,9 @@ fn render_with_store(
     job: &Job,
     wanted: impl Fn(Kind, PhotoSize) -> bool,
     store: Option<&ThumbStore>,
-) -> (Vec<(Kind, PhotoSize, Rendered)>, Option<PendingFull>) {
+) -> RenderResult {
     let mut decoded = None;
-    let mut out = Vec::new();
-    let mut pending = None;
+    let mut result = RenderResult::default();
     // Largest first, so one decode serves every rendition of the photo.
     let mut specs: Vec<_> = job.specs.iter().collect();
     specs.sort_by_key(|(_, (w, h, _))| std::cmp::Reverse(u64::from(*w) * u64::from(*h)));
@@ -1172,16 +1170,17 @@ fn render_with_store(
                 }
                 if let Some(key) = key {
                     if ThumbnailKey::read(path, spec, scrim > 0).ok().as_ref() == Some(&key) {
-                        if let Some((store, name)) = &stored {
+                        if stored.is_some() {
+                            let pending = PendingWrite {
+                                trace: context,
+                                key: key.clone(),
+                                buffer: buf.clone(),
+                            };
                             if kind == Kind::Full {
                                 trace::emit(context, "photo.store.defer", &[]);
-                                pending = Some(PendingFull {
-                                    trace: context,
-                                    key: key.clone(),
-                                    buffer: buf.clone(),
-                                });
+                                result.full = Some(pending);
                             } else {
-                                save_stored(store, name, &buf, context);
+                                result.thumb = Some(pending);
                             }
                         }
                         cache_for(kind).lock().unwrap().insert(key, buf.clone());
@@ -1210,30 +1209,9 @@ fn render_with_store(
                 },
             )],
         );
-        out.push((kind, spec, rendered));
+        result.outcomes.push((kind, spec, rendered));
     }
-    (out, pending)
-}
-
-fn save_pending_full(store: &ThumbStore, pending: PendingFull) {
-    let context = pending.trace;
-    let key = pending.key;
-    if ThumbnailKey::read(&key.path, key.size, key.baked)
-        .ok()
-        .as_ref()
-        != Some(&key)
-    {
-        trace::emit(
-            context,
-            "photo.store.cancel",
-            &[Field::Str("reason", "source_changed")],
-        );
-        return;
-    }
-    let name = key.stored_full_name();
-    if let Err(error) = store.save_full(&name, &pending.buffer, context) {
-        eprintln!("[photos] cannot store full-screen image {name}: {error}");
-    }
+    result
 }
 
 fn save_stored(store: &ThumbStore, name: &str, buf: &Buffer, context: Option<trace::Context>) {
@@ -1264,6 +1242,9 @@ fn warm_stored(
     );
     if hit {
         return true;
+    }
+    if urgent() {
+        return false;
     }
     let Ok(decoded) = decode_oriented(path, (THUMB, THUMB), context)
         .map_err(|e| eprintln!("[photos] {}: {e}", path.display()))
@@ -1350,156 +1331,176 @@ fn work(weak: slint::Weak<AppWindow>) {
         let claimed_index = step.job.as_ref().map(|job| job.index);
         let context = step.job.as_ref().and_then(|job| job.trace);
         let job_started = trace::start(context);
-        let mut updates = Vec::new();
-        let mut pending = None;
-        if let Some(job) = &step.job {
-            let (outcomes, full) = render(&playlist[job.index].path, job, |kind, spec| {
+        let rendered = step.job.as_ref().map_or_else(RenderResult::default, |job| {
+            render(&playlist[job.index].path, job, |kind, spec| {
                 SHARED
                     .lock()
                     .unwrap()
                     .accepts(job.index, kind, spec, playlist.len())
-            });
-            pending = full;
-            for (kind, spec, rendered) in outcomes {
-                updates.push((job.index, kind, spec, rendered));
-            }
-        }
-        let (acknowledge, acknowledged) = std::sync::mpsc::sync_channel::<()>(1);
-        let ui_enqueued = trace::start(context);
-        trace::emit(
-            context,
-            "photo.ui.enqueue",
-            &[Field::U64("updates", updates.len() as u64)],
-        );
-        if slint::invoke_from_event_loop({
-            let weak = weak.clone();
-            move || {
-                let _acknowledge = acknowledge;
-                trace::duration(context, "photo.ui.begin", ui_enqueued, &[]);
-                let apply_started = trace::start(context);
-                let Some(app) = weak.upgrade() else {
+            })
+        });
+        if !completion::complete(
+            rendered,
+            |outcomes| {
+                let updates: Vec<_> = outcomes
+                    .into_iter()
+                    .map(|(kind, spec, rendered)| {
+                        (
+                            claimed_index.expect("rendered outcomes have a claimed photo"),
+                            kind,
+                            spec,
+                            rendered,
+                        )
+                    })
+                    .collect();
+                let (acknowledge, acknowledged) = std::sync::mpsc::sync_channel::<()>(1);
+                let ui_enqueued = trace::start(context);
+                trace::emit(
+                    context,
+                    "photo.ui.enqueue",
+                    &[Field::U64("updates", updates.len() as u64)],
+                );
+                if slint::invoke_from_event_loop({
+                    let weak = weak.clone();
+                    move || {
+                        let _acknowledge = acknowledge;
+                        trace::duration(context, "photo.ui.begin", ui_enqueued, &[]);
+                        let apply_started = trace::start(context);
+                        let Some(app) = weak.upgrade() else {
+                            trace::emit(
+                                context,
+                                "photo.ui.reject",
+                                &[Field::Str("reason", "app_gone")],
+                            );
+                            return;
+                        };
+                        demand(&app);
+                        let mut shared = SHARED.lock().unwrap();
+                        let card = shared.want.card;
+                        let slots = shared.want.slots(playlist.len());
+                        let mut admitted = Vec::new();
+                        for (index, kind) in step.evict {
+                            if !slots.iter().any(|&(i, k, _)| (i, k) == (index, kind)) {
+                                shared.have.remove(&(index, kind));
+                                admitted.push((index, kind, None));
+                            }
+                        }
+                        for (index, kind, spec, rendered) in updates {
+                            let rendition_context = context.map(|c| c.rendition(kind.label()));
+                            if slots.contains(&(index, kind, spec)) {
+                                match rendered {
+                                    Rendered::Ready(buffer) => {
+                                        shared.have.insert((index, kind), HaveSlot::Ready(spec));
+                                        admitted.push((index, kind, Some(buffer)));
+                                    }
+                                    Rendered::Failed => {
+                                        shared.have.insert((index, kind), HaveSlot::Failed(spec));
+                                        trace::emit(
+                                            rendition_context,
+                                            "photo.ui.reject",
+                                            &[Field::Str("reason", "render_failed")],
+                                        );
+                                    }
+                                    Rendered::Cancelled => {
+                                        trace::emit(
+                                            rendition_context,
+                                            "photo.ui.reject",
+                                            &[Field::Str("reason", "render_cancelled")],
+                                        );
+                                    }
+                                }
+                            } else {
+                                trace::emit(
+                                    rendition_context,
+                                    "photo.ui.reject",
+                                    &[Field::Str("reason", "stale_demand")],
+                                );
+                            }
+                        }
+                        if step.card_done == shared.want.card && step.card_done.is_some() {
+                            shared.card_batch = CardBatch::Settled;
+                        }
+                        drop(shared);
+                        let f = app.global::<Frame>();
+                        let model = f.get_photos();
+                        for (index, kind, buf) in admitted {
+                            let rendition_context = if buf.is_some() {
+                                context.map(|c| c.rendition(kind.label()))
+                            } else {
+                                None
+                            };
+                            let Some(mut photo) = model.row_data(index) else {
+                                trace::emit(
+                                    rendition_context,
+                                    "photo.ui.reject",
+                                    &[Field::Str("reason", "row_missing")],
+                                );
+                                continue;
+                            };
+                            let published = buf.is_some();
+                            let image = buf.map(slint::Image::from_rgb8).unwrap_or_default();
+                            match kind {
+                                Kind::Card => {
+                                    if let (
+                                        true,
+                                        Some(Card {
+                                            size,
+                                            bake,
+                                            generation,
+                                        }),
+                                    ) = (published, card)
+                                    {
+                                        f.set_photo_scrim_baked(bake);
+                                        LOAD_STATE.lock().unwrap().ready(generation, size);
+                                    }
+                                    photo.image = image;
+                                }
+                                Kind::Full => photo.full = image,
+                                Kind::Thumb => photo.thumb = image,
+                            }
+                            model.set_row_data(index, photo);
+                            if published {
+                                trace::emit(rendition_context, "photo.ui.apply", &[]);
+                            }
+                        }
+                        prewarm::refresh(&app);
+                        trace::duration(context, "photo.ui.end", apply_started, &[]);
+                        if let Some(Card { generation, .. }) = step.card_done {
+                            LOAD_STATE.lock().unwrap().finish(generation);
+                        }
+                    }
+                })
+                .is_err()
+                {
                     trace::emit(
                         context,
                         "photo.ui.reject",
-                        &[Field::Str("reason", "app_gone")],
+                        &[Field::Str("reason", "enqueue_failed")],
                     );
-                    return;
-                };
-                demand(&app);
-                let mut shared = SHARED.lock().unwrap();
-                let card = shared.want.card;
-                let slots = shared.want.slots(playlist.len());
-                let mut admitted = Vec::new();
-                for (index, kind) in step.evict {
-                    if !slots.iter().any(|&(i, k, _)| (i, k) == (index, kind)) {
-                        shared.have.remove(&(index, kind));
-                        admitted.push((index, kind, None));
+                    return Err(());
+                }
+                Ok(move || {
+                    let _ = acknowledged.recv();
+                })
+            },
+            |destination, pending| {
+                if let Some(store) = store() {
+                    match destination {
+                        Destination::Thumb => pending.save(&store.disk, destination),
+                        Destination::Full => store.writer.enqueue(pending),
                     }
                 }
-                for (index, kind, spec, rendered) in updates {
-                    let rendition_context = context.map(|c| c.rendition(kind.label()));
-                    if slots.contains(&(index, kind, spec)) {
-                        match rendered {
-                            Rendered::Ready(buffer) => {
-                                shared.have.insert((index, kind), HaveSlot::Ready(spec));
-                                admitted.push((index, kind, Some(buffer)));
-                            }
-                            Rendered::Failed => {
-                                shared.have.insert((index, kind), HaveSlot::Failed(spec));
-                                trace::emit(
-                                    rendition_context,
-                                    "photo.ui.reject",
-                                    &[Field::Str("reason", "render_failed")],
-                                );
-                            }
-                            Rendered::Cancelled => {
-                                trace::emit(
-                                    rendition_context,
-                                    "photo.ui.reject",
-                                    &[Field::Str("reason", "render_cancelled")],
-                                );
-                            }
-                        }
-                    } else {
-                        trace::emit(
-                            rendition_context,
-                            "photo.ui.reject",
-                            &[Field::Str("reason", "stale_demand")],
-                        );
-                    }
+            },
+            || {
+                trace::duration(context, "photo.job.end", job_started, &[]);
+                if let Some(index) = claimed_index {
+                    SHARED.lock().unwrap().release(index);
+                    DEMAND_CHANGED.notify_all();
                 }
-                if step.card_done == shared.want.card && step.card_done.is_some() {
-                    shared.card_batch = CardBatch::Settled;
-                }
-                drop(shared);
-                let f = app.global::<Frame>();
-                let model = f.get_photos();
-                for (index, kind, buf) in admitted {
-                    let rendition_context = if buf.is_some() {
-                        context.map(|c| c.rendition(kind.label()))
-                    } else {
-                        None
-                    };
-                    let Some(mut photo) = model.row_data(index) else {
-                        trace::emit(
-                            rendition_context,
-                            "photo.ui.reject",
-                            &[Field::Str("reason", "row_missing")],
-                        );
-                        continue;
-                    };
-                    let published = buf.is_some();
-                    let image = buf.map(slint::Image::from_rgb8).unwrap_or_default();
-                    match kind {
-                        Kind::Card => {
-                            if let (
-                                true,
-                                Some(Card {
-                                    size,
-                                    bake,
-                                    generation,
-                                }),
-                            ) = (published, card)
-                            {
-                                f.set_photo_scrim_baked(bake);
-                                LOAD_STATE.lock().unwrap().ready(generation, size);
-                            }
-                            photo.image = image;
-                        }
-                        Kind::Full => photo.full = image,
-                        Kind::Thumb => photo.thumb = image,
-                    }
-                    model.set_row_data(index, photo);
-                    if published {
-                        trace::emit(rendition_context, "photo.ui.apply", &[]);
-                    }
-                }
-                prewarm::refresh(&app);
-                trace::duration(context, "photo.ui.end", apply_started, &[]);
-                if let Some(Card { generation, .. }) = step.card_done {
-                    LOAD_STATE.lock().unwrap().finish(generation);
-                }
-            }
-        })
-        .is_err()
-        {
-            trace::emit(
-                context,
-                "photo.ui.reject",
-                &[Field::Str("reason", "enqueue_failed")],
-            );
+            },
+            context,
+        ) {
             return;
-        }
-        let started = trace::start(context);
-        let _ = acknowledged.recv();
-        trace::duration(context, "photo.ui.ack_wait", started, &[]);
-        if let (Some(store), Some(pending)) = (store(), pending) {
-            store.writer.enqueue(pending);
-        }
-        trace::duration(context, "photo.job.end", job_started, &[]);
-        if let Some(index) = claimed_index {
-            SHARED.lock().unwrap().release(index);
-            DEMAND_CHANGED.notify_all();
         }
     }
 }
@@ -1508,9 +1509,9 @@ fn work(weak: slint::Weak<AppWindow>) {
 mod tests {
     use super::{
         composite_scrim, cover, dct_scale, decode_oriented, exif_date, fit, oriented_dimensions,
-        raster_scrim, render, render_with_store, save_pending_full, scan, taken, threads_from,
-        warm_stored, window, Card, CardBatch, HaveSlot, Job, Kind, Rendered, Shared, ThumbStore,
-        ThumbnailCache, ThumbnailKey, Want, Warm, MAX_THUMBS, THUMB,
+        raster_scrim, render, render_with_store, scan, taken, threads_from, warm_stored, window,
+        Card, CardBatch, Destination, HaveSlot, Job, Kind, RenderResult, Rendered, Shared,
+        ThumbStore, ThumbnailCache, ThumbnailKey, Want, Warm, MAX_THUMBS, THUMB,
     };
     use image::metadata::Orientation;
     use image::{imageops, Rgb, RgbImage};
@@ -1744,7 +1745,7 @@ mod tests {
             index: 0,
             specs,
         };
-        let (out, _) = render(&path, &job, |_, _| true);
+        let out = render(&path, &job, |_, _| true).outcomes;
         assert_eq!(out.len(), 3);
         for (_, (w, h, _), rendered) in out {
             let Rendered::Ready(buffer) = rendered else {
@@ -1768,7 +1769,7 @@ mod tests {
             index: 0,
             specs: vec![(Kind::Full, spec)],
         };
-        let (original, _) = render_with_store(&path, &job, |_, _| true, None);
+        let original = render_with_store(&path, &job, |_, _| true, None).outcomes;
         let Rendered::Ready(expected) = &original[0].2 else {
             panic!("original failed")
         };
@@ -1787,7 +1788,7 @@ mod tests {
             .unwrap();
         let error = mean_abs_error(expected.as_bytes(), loaded.as_bytes());
         assert!(error < 3.0, "JPEG mean absolute error {error}");
-        let (cached, _) = render_with_store(&path, &job, |_, _| true, Some(&store));
+        let cached = render_with_store(&path, &job, |_, _| true, Some(&store)).outcomes;
         let Rendered::Ready(actual) = &cached[0].2 else {
             panic!("cached render failed")
         };
@@ -1808,7 +1809,11 @@ mod tests {
             b"bad jpeg",
         )
         .unwrap();
-        let (rebuilt, pending) = render_with_store(&path, &job, |_, _| true, Some(&store));
+        let RenderResult {
+            outcomes: rebuilt,
+            full: pending,
+            ..
+        } = render_with_store(&path, &job, |_, _| true, Some(&store));
         let Rendered::Ready(rebuilt) = &rebuilt[0].2 else {
             panic!("source fallback failed")
         };
@@ -1816,7 +1821,7 @@ mod tests {
         assert!(store
             .load_full(&key.stored_full_name(), spec.0, spec.1)
             .is_none());
-        save_pending_full(&store, pending.unwrap());
+        pending.unwrap().save(&store, Destination::Full);
         assert!(store
             .load_full(&key.stored_full_name(), spec.0, spec.1)
             .is_some());
@@ -1827,7 +1832,7 @@ mod tests {
         store
             .save_full(&broken_key.stored_full_name(), expected, None)
             .unwrap();
-        let (cached, _) = render_with_store(&path, &job, |_, _| true, Some(&store));
+        let cached = render_with_store(&path, &job, |_, _| true, Some(&store)).outcomes;
         assert!(matches!(cached[0].2, Rendered::Ready(_)));
         super::RENDITIONS
             .lock()
@@ -1842,7 +1847,7 @@ mod tests {
             b"bad jpeg",
         )
         .unwrap();
-        let (failed, _) = render_with_store(&path, &job, |_, _| true, Some(&store));
+        let failed = render_with_store(&path, &job, |_, _| true, Some(&store)).outcomes;
         assert!(matches!(failed[0].2, Rendered::Failed));
     }
 
@@ -1875,16 +1880,20 @@ mod tests {
                     frame_trace::Field::Bool("i", true),
                 ],
             );
-            let (outcomes, pending) =
-                render_with_store(&fixture.photo(), &job, |_, _| true, Some(&store));
+            let RenderResult {
+                outcomes,
+                full: pending,
+                thumb,
+            } = render_with_store(&fixture.photo(), &job, |_, _| true, Some(&store));
             assert!(outcomes
                 .iter()
                 .all(|(_, _, rendered)| matches!(rendered, Rendered::Ready(_))));
+            thumb.unwrap().save(&store, Destination::Thumb);
             let pending = pending.unwrap();
             assert_eq!(pending.trace.unwrap().id, job.trace.unwrap().id);
             let (done, finished) = std::sync::mpsc::channel();
             let writer = super::cache_writer::CacheWriter::new(1024 * 1024, 2, move |pending| {
-                save_pending_full(&store, pending);
+                pending.save(&store, Destination::Full);
                 done.send(()).unwrap();
             });
             writer.enqueue(pending);
@@ -1899,7 +1908,7 @@ mod tests {
             .args(["--exact", "photos::tests::trace_correlates_renditions_and_deferred_write_without_source_content", "--test-threads=1"])
             .env(CHILD, "1")
             .env("FRAME_TRACE_OUTPUT", &output)
-            .env("FRAME_TRACE_SECONDS", "5")
+            .env("FRAME_TRACE_SECONDS", "180")
             .status()
             .unwrap();
         assert!(status.success());
@@ -1951,7 +1960,7 @@ mod tests {
         ] {
             assert!(
                 events.iter().any(|event| event["name"] == name),
-                "missing {name}"
+                "missing {name}; trace summary {summary}"
             );
         }
         let deferred = events
@@ -1979,6 +1988,59 @@ mod tests {
     }
 
     #[test]
+    fn render_defers_thumbnail_writes_and_rejects_stale_sources() {
+        let fixture = PhotoFixture::new();
+        let path = fixture.photo();
+        let store = ThumbStore::new(fixture.0.join("cache"));
+        let job = Job {
+            trace: None,
+            index: 0,
+            specs: vec![
+                (Kind::Full, (32, 24, 0)),
+                (Kind::Card, (24, 32, 0)),
+                (Kind::Thumb, (12, 12, 0)),
+            ],
+        };
+        let RenderResult {
+            outcomes,
+            thumb: pending,
+            full,
+        } = render_with_store(&path, &job, |_, _| true, Some(&store));
+        assert!(outcomes
+            .iter()
+            .all(|(_, _, result)| matches!(result, Rendered::Ready(_))));
+        let full = full.unwrap();
+        let full_name = full.key.stored_full_name();
+        assert!(store.load_full(&full_name, 32, 24).is_none());
+        full.save(&store, Destination::Full);
+        assert!(store.load_full(&full_name, 32, 24).is_some());
+        assert!(
+            !store.contains(&full_name),
+            "Full write entered grid namespace"
+        );
+        let pending = pending.unwrap();
+        let name = pending.key.stored_name();
+        assert!(
+            !store.contains(&name),
+            "render waited for optional thumbnail write"
+        );
+        pending.save(&store, Destination::Thumb);
+        assert!(store.load(&name, 12).is_some());
+
+        let other = PhotoFixture::new();
+        let path = other.photo();
+        let pending = render_with_store(&path, &job, |_, _| true, Some(&store)).thumb;
+        let pending = pending.unwrap();
+        let name = pending.key.stored_name();
+        std::fs::write(&path, b"changed source").unwrap();
+        pending.save(&store, Destination::Thumb);
+        assert!(
+            !store.contains(&name),
+            "stale deferred thumbnail was persisted"
+        );
+    }
+
+    #[test]
     fn pending_full_write_is_discarded_when_source_changes() {
         let fixture = PhotoFixture::new();
         let path = fixture.photo();
@@ -1989,7 +2051,11 @@ mod tests {
             index: 0,
             specs: vec![(Kind::Full, spec)],
         };
-        let (outcomes, pending) = render_with_store(&path, &job, |_, _| true, Some(&store));
+        let RenderResult {
+            outcomes,
+            full: pending,
+            ..
+        } = render_with_store(&path, &job, |_, _| true, Some(&store));
         assert!(matches!(outcomes[0].2, Rendered::Ready(_)));
         let pending = pending.unwrap();
         let name = pending.key.stored_full_name();
@@ -2001,7 +2067,7 @@ mod tests {
         let writer = super::cache_writer::CacheWriter::new(1024 * 1024, 2, move |pending| {
             started.send(()).unwrap();
             released.recv().unwrap();
-            save_pending_full(&ThumbStore::new(cache_dir.clone()), pending);
+            pending.save(&ThumbStore::new(cache_dir.clone()), Destination::Full);
             done.send(()).unwrap();
         });
         writer.enqueue(pending);
@@ -2251,6 +2317,9 @@ mod tests {
             .stored_name();
         assert!(!warm_stored(&store, &fixture.photo(), || true, None));
         assert!(!store.contains(&name));
+        let unreadable = fixture.0.join("invalid.jpg");
+        std::fs::write(&unreadable, b"invalid JPEG").unwrap();
+        assert!(!warm_stored(&store, &unreadable, || true, None));
         assert!(warm_stored(&store, &fixture.photo(), || false, None));
         assert!(store.load(&name, THUMB).is_some());
         assert!(warm_stored(

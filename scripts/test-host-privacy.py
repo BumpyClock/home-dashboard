@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -45,12 +46,19 @@ def main():
 
         def console():
             try:
-                for _ in range(10):
+                for exchange in range(10):
                     assert serial_check.read_line(master).strip() == b""
+                    if exchange == 0:
+                        deadline = time.monotonic() + 3
+                        while not directory.joinpath("provider.running").exists():
+                            assert time.monotonic() < deadline, "provider acquisition waited for serial login"
+                            time.sleep(0.01)
                     os.write(master, b"[user@frame ~]$ ")
                     assert b"FRAME_HOST_SHELL_V1" in serial_check.read_line(master)
                     os.write(master, b"\nFRAME_HOST_SHELL_V1\n")
                     command = serial_check.read_line(master)
+                    if exchange == 0:
+                        assert b"--host-state-receive" in command, "calendar delivery preceded privacy status"
                     if b"--host-state-receive" in command:
                         os.write(master, b"\nFRAME_HOST_STATE_READY_V1\n")
                         status = json.loads(serial_check.read_line(master))
@@ -83,9 +91,10 @@ def main():
                 print(f"PASS {len(heartbeats_during_fetch)} lock heartbeats delivered during blocked provider fetch")
             finally:
                 process.terminate()
-                process.wait(timeout=5)
+                # Release any in-flight serial exchange before awaiting graceful shutdown.
                 os.close(master)
                 os.close(slave)
+                process.wait(timeout=25)
 
 
 if __name__ == "__main__":

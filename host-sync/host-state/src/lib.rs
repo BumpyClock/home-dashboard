@@ -109,19 +109,65 @@ mod tests {
     use super::*;
 
     #[test]
-    fn privacy_requires_a_fresh_unlocked_observation() {
+    fn privacy_lease_transition_contract() {
+        use LockState::{Locked, Unknown, Unlocked};
+
         let start = Instant::now();
+        let fresh = Duration::ZERO;
+        let renewal = LEASE - Duration::from_secs(1);
+        let tick = Duration::from_nanos(1);
+        let expiry = renewal + LEASE;
+        let resumed = expiry + tick;
+        let locked_expiry = resumed + LEASE;
         let mut privacy = Visibility::default();
-        assert!(!privacy.allows_host(start));
-        privacy.observe(LockState::Unlocked, start);
-        assert!(privacy.allows_host(start + LEASE - Duration::from_millis(1)));
-        assert!(!privacy.allows_host(start + LEASE));
-        privacy.observe(LockState::Locked, start + LEASE);
-        assert!(!privacy.allows_host(start + LEASE));
-        privacy.observe(LockState::Unlocked, start + LEASE);
-        assert!(privacy.allows_host(start + LEASE));
-        privacy.observe(LockState::Unknown, start + LEASE);
-        assert!(!privacy.allows_host(start + LEASE));
+        for (case, observation, elapsed, expected) in [
+            ("startup", None, fresh, Unknown),
+            ("unlock", Some((Unlocked, fresh)), fresh, Unlocked),
+            (
+                "heartbeat extends original lease",
+                Some((Unlocked, renewal)),
+                LEASE,
+                Unlocked,
+            ),
+            ("last fresh tick", None, expiry - tick, Unlocked),
+            ("exact expiry", None, expiry, Unknown),
+            (
+                "queued old unlock cannot renew",
+                Some((Unlocked, renewal)),
+                resumed,
+                Unknown,
+            ),
+            (
+                "fresh recovery",
+                Some((Unlocked, resumed)),
+                resumed,
+                Unlocked,
+            ),
+            ("lock revokes", Some((Locked, resumed)), resumed, Locked),
+            ("lock expires to unknown", None, locked_expiry, Unknown),
+            (
+                "unlock after lock expiry",
+                Some((Unlocked, locked_expiry)),
+                locked_expiry,
+                Unlocked,
+            ),
+            (
+                "unknown revokes",
+                Some((Unknown, locked_expiry)),
+                locked_expiry,
+                Unknown,
+            ),
+        ] {
+            if let Some((state, received)) = observation {
+                privacy.observe(state, start + received);
+            }
+            assert_eq!(privacy.state_at(start + elapsed), expected, "{case}");
+            assert_eq!(
+                privacy.allows_host(start + elapsed),
+                expected == LockState::Unlocked,
+                "{case}"
+            );
+        }
     }
 
     #[test]

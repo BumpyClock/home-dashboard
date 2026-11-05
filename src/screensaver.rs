@@ -1,6 +1,6 @@
+use slint::{ComponentHandle, Model};
 #[cfg(all(feature = "frame", target_os = "linux"))]
-use slint::TimerMode;
-use slint::{ComponentHandle, Model, Timer};
+use slint::{Timer, TimerMode};
 use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
@@ -40,7 +40,9 @@ fn swipe_target(index: i32, count: usize, dx: f32, dy: f32) -> Option<(i32, i32)
 const PHOTOS_LOADING_RETRY: Duration = Duration::from_secs(1);
 
 pub struct Guard {
+    #[cfg(all(feature = "frame", target_os = "linux"))]
     app: slint::Weak<AppWindow>,
+    #[cfg(all(feature = "frame", target_os = "linux"))]
     timer: Timer,
     idle_after: Cell<Option<Duration>>,
     benchmark: bool,
@@ -151,7 +153,9 @@ pub fn install(app: &AppWindow, idle_secs: u64) -> Rc<Guard> {
     });
     saver.set_active(config.start_active);
     Rc::new(Guard {
+        #[cfg(all(feature = "frame", target_os = "linux"))]
         app: app.as_weak(),
+        #[cfg(all(feature = "frame", target_os = "linux"))]
         timer: Timer::default(),
         idle_after: Cell::new(config.idle_after),
         benchmark: config.benchmark,

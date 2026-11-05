@@ -7,6 +7,7 @@ use std::collections::HashSet;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration as StdDuration;
 
 #[derive(Debug, Deserialize)]
@@ -95,8 +96,7 @@ impl Config {
             Some(zone) => calendar_window(now, self.days, zone)?,
             None => calendar_window(now, self.days, Local)?,
         };
-        let mut sources = Vec::new();
-        for source in &self.sources {
+        let fetch = |source: &SourceConfig| -> Result<Source> {
             let events = (|| -> Result<Vec<Event>> {
                 match source {
                     SourceConfig::Json { path, .. } => {
@@ -126,11 +126,48 @@ impl Config {
                     }
                 }
             })().with_context(|| format!("calendar source {} failed", source.id()))?;
-            sources.push(Source {
+            Ok(Source {
                 id: source.id().into(),
                 events,
+            })
+        };
+        let sources = if self.sources.len() <= 1 {
+            self.sources.iter().map(fetch).collect::<Result<Vec<_>>>()?
+        } else {
+            let next = AtomicUsize::new(0);
+            let failed = AtomicBool::new(false);
+            let mut results = std::thread::scope(|scope| {
+                let workers: Vec<_> = (0..2)
+                    .map(|_| {
+                        scope.spawn(|| {
+                            let mut results = Vec::new();
+                            while !failed.load(Ordering::Relaxed) {
+                                let index = next.fetch_add(1, Ordering::Relaxed);
+                                let Some(source) = self.sources.get(index) else {
+                                    break;
+                                };
+                                let result = fetch(source);
+                                if result.is_err() {
+                                    failed.store(true, Ordering::Relaxed);
+                                }
+                                results.push((index, result));
+                            }
+                            results
+                        })
+                    })
+                    .collect();
+                workers
+                    .into_iter()
+                    .flat_map(|worker| worker.join().expect("calendar source worker panicked"))
+                    .collect::<Vec<_>>()
             });
-        }
+            // Configuration order defines display precedence and the reported failure.
+            results.sort_unstable_by_key(|(index, _)| *index);
+            results
+                .into_iter()
+                .map(|(_, result)| result)
+                .collect::<Result<Vec<_>>>()?
+        };
         let snapshot = Snapshot::new(sources);
         snapshot.encode()?;
         Ok(snapshot)

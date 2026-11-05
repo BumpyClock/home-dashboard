@@ -5,6 +5,7 @@ use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug)]
@@ -107,17 +108,14 @@ impl Contents {
     }
 }
 
-enum Update {
-    Calendars(Contents),
-    HostState(LockState, Instant),
-}
-
 pub struct Calendar {
     contents: RefCell<Contents>,
     visibility: RefCell<Visibility>,
     hide_when_locked: Cell<bool>,
     hidden: Cell<bool>,
-    updates: Receiver<Update>,
+    privacy_state: Cell<LockState>,
+    updates: Receiver<Contents>,
+    host_updates: Arc<Mutex<Option<(LockState, Instant)>>>,
 }
 
 impl Calendar {
@@ -138,15 +136,43 @@ impl Calendar {
         direct: Option<PathBuf>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let (tx, updates) = mpsc::sync_channel(1);
+        let host_updates = Arc::new(Mutex::new(None));
+        let pending = Arc::downgrade(&host_updates);
+        let status_path = host_state::path_for_calendar(&host);
+        std::thread::Builder::new()
+            .name("calendar-privacy".into())
+            .spawn(move || {
+                // A restart never turns a persisted unlocked packet into fresh permission.
+                let mut previous_status = Status::load(&status_path).ok();
+                loop {
+                    if pending.strong_count() == 0 {
+                        return;
+                    }
+                    let status = Status::load(&status_path).ok();
+                    if status != previous_status {
+                        let state = status
+                            .as_ref()
+                            .map_or(LockState::Unknown, |status| status.state);
+                        previous_status = status;
+                        let received = Instant::now();
+                        let Some(pending) = pending.upgrade() else {
+                            return;
+                        };
+                        *pending.lock().unwrap() = Some((state, received));
+                    }
+                    std::thread::sleep(Duration::from_secs(2));
+                }
+            })?;
+        let lifetime = Arc::downgrade(&host_updates);
         std::thread::Builder::new()
             .name("calendar-input".into())
             .spawn(move || {
-                let status_path = host_state::path_for_calendar(&host);
-                // A restart never turns a persisted unlocked packet into a fresh permission to display.
-                let mut previous_status = Status::load(&status_path).ok();
                 let mut host_input = Input::new(host);
                 let mut direct_input = direct.map(Input::new);
                 loop {
+                    if lifetime.strong_count() == 0 {
+                        return;
+                    }
                     let mut changed = host_input.refresh();
                     if let Some(input) = &mut direct_input {
                         changed |= input.refresh();
@@ -168,17 +194,7 @@ impl Calendar {
                             direct_events: calendar_sync::merge(direct),
                             direct_updated_at: direct.map(|snapshot| snapshot.generated_at),
                         };
-                        if tx.send(Update::Calendars(update)).is_err() {
-                            return;
-                        }
-                    }
-                    let status = Status::load(&status_path).ok();
-                    if status != previous_status {
-                        let state = status
-                            .as_ref()
-                            .map_or(LockState::Unknown, |status| status.state);
-                        previous_status = status;
-                        if tx.send(Update::HostState(state, Instant::now())).is_err() {
+                        if tx.send(update).is_err() {
                             return;
                         }
                     }
@@ -190,24 +206,25 @@ impl Calendar {
             visibility: RefCell::new(Visibility::default()),
             hide_when_locked: Cell::new(false),
             hidden: Cell::new(false),
+            privacy_state: Cell::new(LockState::Unknown),
             updates,
+            host_updates,
         })
     }
 
     pub fn poll(&self) -> bool {
         let mut changed = false;
-        while let Ok(update) = self.updates.try_recv() {
-            match update {
-                Update::Calendars(contents) => *self.contents.borrow_mut() = contents,
-                Update::HostState(state, received) => {
-                    self.visibility.borrow_mut().observe(state, received)
-                }
-            }
+        while let Ok(contents) = self.updates.try_recv() {
+            *self.contents.borrow_mut() = contents;
             changed = true;
         }
-        let hidden =
-            self.hide_when_locked.get() && !self.visibility.borrow().allows_host(Instant::now());
-        changed | (self.hidden.replace(hidden) != hidden)
+        if let Some((state, received)) = self.host_updates.lock().unwrap().take() {
+            self.visibility.borrow_mut().observe(state, received);
+        }
+        let state = self.visibility.borrow().state_at(Instant::now());
+        let state_changed = self.privacy_state.replace(state) != state;
+        let hidden = self.hide_when_locked.get() && state != LockState::Unlocked;
+        changed | (self.hidden.replace(hidden) != hidden) | (hidden && state_changed)
     }
 
     pub fn set_hide_when_locked(&self, enabled: bool) {
@@ -582,8 +599,13 @@ mod tests {
     }
 
     #[test]
-    fn lease_expiry_and_restarts_remove_host_events_but_keep_direct_duplicates() {
-        let now = Instant::now();
+    fn privacy_transitions_preserve_cached_source_projections() {
+        use LockState::{Locked, Unknown, Unlocked};
+
+        let fresh = Duration::ZERO;
+        let now: DateTime<Utc> = "2026-11-02T18:30:00Z".parse().unwrap();
+        let direct_updated_at = now - CalendarDuration::hours(2);
+        let host_updated_at = now - CalendarDuration::hours(1);
         let (_tx, updates) = mpsc::sync_channel(1);
         let direct = timed("2026-11-02T18:00:00Z", "2026-11-02T19:00:00Z");
         let mut secret = direct.clone();
@@ -593,38 +615,143 @@ mod tests {
                 loaded: true,
                 events: vec![direct.clone(), secret],
                 direct_events: vec![direct],
-                ..Default::default()
+                updated_at: Some(host_updated_at),
+                direct_updated_at: Some(direct_updated_at),
             }),
             visibility: RefCell::new(Visibility::default()),
             hide_when_locked: Cell::new(false),
             hidden: Cell::new(false),
+            privacy_state: Cell::new(LockState::Unknown),
             updates,
+            host_updates: Arc::new(Mutex::new(None)),
         };
-        let day = "2026-11-02".parse().unwrap();
-        assert_eq!(calendar.events_on(day).len(), 2);
+        let day = now.with_timezone(&crate::settings::zone()).date_naive();
         calendar.set_hide_when_locked(true);
-        assert_eq!(calendar.events_on(day).len(), 1);
-        calendar
-            .visibility
-            .borrow_mut()
-            .observe(LockState::Unlocked, now);
-        assert!(calendar.poll());
-        assert_eq!(calendar.events_on(day).len(), 2);
-        calendar
-            .visibility
-            .borrow_mut()
-            .observe(LockState::Unlocked, now - host_state::LEASE);
-        assert!(calendar.poll());
-        assert_eq!(calendar.events_on(day).len(), 1);
-        calendar
-            .visibility
-            .borrow_mut()
-            .observe(LockState::Locked, now);
-        calendar.poll();
-        assert!(calendar.host_hidden());
-        assert!(calendar.privacy_message().contains("Computer locked"));
+        for (case, state, age, hidden, changed) in [
+            ("startup", None, fresh, true, false),
+            ("fresh unlock", Some(Unlocked), fresh, false, true),
+            (
+                "heartbeat needs no rebuild",
+                Some(Unlocked),
+                fresh,
+                false,
+                false,
+            ),
+            (
+                "queued expired unlock hides cached host",
+                Some(Unlocked),
+                host_state::LEASE,
+                true,
+                true,
+            ),
+            ("unlock restores cache", Some(Unlocked), fresh, false, true),
+            ("restart", None, fresh, true, true),
+            ("unlock after restart", Some(Unlocked), fresh, false, true),
+            ("locked", Some(Locked), fresh, true, true),
+            (
+                "unknown changes hidden reason",
+                Some(Unknown),
+                fresh,
+                true,
+                true,
+            ),
+        ] {
+            if let Some(state) = state {
+                *calendar.host_updates.lock().unwrap() = Some((state, Instant::now() - age));
+            } else {
+                *calendar.visibility.borrow_mut() = Visibility::default();
+            }
+            assert_eq!(calendar.poll(), changed, "{case}");
+            assert_eq!(calendar.host_hidden(), hidden, "{case}");
+            assert!(calendar.has_snapshot(), "{case}");
+            assert_eq!(
+                calendar.updated_at(),
+                Some(if hidden {
+                    direct_updated_at
+                } else {
+                    host_updated_at
+                }),
+                "{case}"
+            );
+            let expected = if hidden {
+                vec!["Real meeting"]
+            } else {
+                vec!["Real meeting", "Private work calendar"]
+            };
+            let agenda = calendar.home(now);
+            let upcoming = calendar.upcoming(now, 7);
+            assert_eq!(upcoming.event_count, expected.len(), "{case}");
+            for events in [
+                calendar.events_on(day),
+                agenda.current,
+                upcoming
+                    .days
+                    .into_iter()
+                    .flat_map(|day| day.events)
+                    .collect(),
+            ] {
+                assert_eq!(
+                    events
+                        .iter()
+                        .map(|event| event.title.as_str())
+                        .collect::<Vec<_>>(),
+                    expected,
+                    "{case}"
+                );
+            }
+            assert_eq!(
+                calendar.privacy_message(),
+                if !hidden {
+                    ""
+                } else if state == Some(LockState::Locked) {
+                    "Host calendar hidden · Computer locked"
+                } else {
+                    "Host calendar hidden · Waiting for unlocked computer"
+                },
+                "{case}"
+            );
+        }
         calendar.set_hide_when_locked(false);
         assert_eq!(calendar.events_on(day).len(), 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn privacy_observation_continues_while_calendar_read_is_blocked() {
+        let directory = tempfile::tempdir().unwrap();
+        let host = directory.path().join("blocked.json");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&host)
+            .status()
+            .unwrap()
+            .success());
+        let status_path = host_state::path_for_calendar(&host);
+        let calendar = Calendar::from_paths(host.clone(), None).unwrap();
+        calendar.set_hide_when_locked(true);
+        let (opened, ready) = mpsc::channel();
+        std::thread::spawn(move || {
+            let writer = std::fs::OpenOptions::new().write(true).open(host).unwrap();
+            let _ = opened.send(writer);
+        });
+        let writer = ready.recv_timeout(Duration::from_secs(5)).unwrap();
+        // Keeping the FIFO writer open without bytes holds the real snapshot loader.
+        for state in [LockState::Unlocked, LockState::Locked] {
+            let deadline = Instant::now() + Duration::from_secs(6);
+            loop {
+                let mut packet = Status::new(state).encode().unwrap();
+                packet.push(b'\n');
+                host_state::receive(&packet[..], Vec::new(), &status_path).unwrap();
+                calendar.poll();
+                if calendar.visibility.borrow().state_at(Instant::now()) == state {
+                    break;
+                }
+                assert!(Instant::now() < deadline, "privacy waited for calendar I/O");
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            assert_eq!(calendar.host_hidden(), state != LockState::Unlocked);
+            assert!(!calendar.has_snapshot());
+        }
+        drop(writer);
     }
 
     #[test]

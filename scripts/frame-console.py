@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import sys
 import time
 
@@ -35,6 +36,7 @@ PAUSE = 0.003
 XON = 0x11
 XOFF = 0x13
 ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b\]3008;[^\x07]*\x07")
+SHELL_PROMPT = r"(?m:(?:^|[\r\n])[^\r\n]*[#$] $)"
 
 
 def load_creds():
@@ -51,10 +53,10 @@ def clean(text):
     return ANSI.sub("", text)
 
 
-def read_until(ser, pattern, timeout):
-    deadline = time.time() + timeout
-    buf = ""
-    while time.time() < deadline:
+def read_until(ser, pattern, timeout, initial=""):
+    deadline = time.monotonic() + timeout
+    buf = initial
+    while time.monotonic() < deadline:
         chunk = ser.read(8192).decode("utf-8", "replace")
         if chunk:
             buf += chunk
@@ -66,15 +68,19 @@ def read_until(ser, pattern, timeout):
 def login(ser, creds):
     ser.write(b"\n")
     ser.flush()
-    out, _ = read_until(ser, r"login:", 3)
+    out, ready = read_until(ser, rf"login:|{SHELL_PROMPT}", 3)
+    if not ready:
+        raise TimeoutError("serial console did not show login or shell prompt")
     if "login:" in out:
         ser.write(creds["username"].encode() + b"\n")
         ser.flush()
-        out, _ = read_until(ser, r"Password:", 5)
-        if "Password" in out:
+        out, ready = read_until(ser, rf"[Pp]assword:|{SHELL_PROMPT}", 5)
+        if re.search(r"[Pp]assword:", out):
             ser.write(creds["password"].encode() + b"\n")
             ser.flush()
-        read_until(ser, r"\$ $", 8)
+            _, ready = read_until(ser, SHELL_PROMPT, 8)
+        if not ready:
+            raise TimeoutError("serial login did not reach a shell prompt")
     time.sleep(0.3)
     ser.reset_input_buffer()
 
@@ -107,21 +113,24 @@ def cmd_root(args):
     ser = open_port(creds)
     try:
         login(ser, creds)
+        marker = "ROOTEND" + str(time.time_ns())
+        complete = rf"(?m)^{marker}([0-9]+)\r?\n"
         wrapped = (
             "pkexec --disable-internal-agent /usr/local/sbin/pf-maintenance shell "
-            f"-c {args.command!r} 2>&1"
+            f"-c {shlex.quote(args.command)} 2>&1; printf '\\n{marker}%s\\n' \"$?\""
         )
+        deadline = time.monotonic() + 60
         ser.write(wrapped.encode() + b"\n")
         ser.flush()
-        out, _ = read_until(ser, r"[Pp]assword", 8)
-        if "assword" in out:
-            ser.write(creds["password"].encode() + b"\n")
-            ser.flush()
-        out2, _ = read_until(ser, r"ROOTEND", 60)
-        ser.write(b"echo ROOTEND$?\n")
-        ser.flush()
-        out3, _ = read_until(ser, r"ROOTEND\d", 15)
-        print(clean(out + out2 + out3))
+        out, _ = read_until(ser, rf"{complete}|[Pp]assword[^\r\n:]*:", max(0, deadline - time.monotonic()))
+        if not re.search(complete, out):
+            if re.search(r"[Pp]assword[^\r\n:]*:", out):
+                ser.write(creds["password"].encode() + b"\n")
+                ser.flush()
+            out, _ = read_until(ser, complete, max(0, deadline - time.monotonic()), initial=out)
+        if not re.search(complete, out):
+            raise TimeoutError("root command did not confirm completion within 60 seconds")
+        print(clean(out))
     finally:
         ser.close()
 

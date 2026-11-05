@@ -87,4 +87,4 @@ bash scripts/check-state-protocols.sh
 
 Tests drive actual Slint components with a fake clock, call real theme application, exercise callback/persistence ordering, and check frame lease behavior with controlled receipt times. No screen, USB device, provider account or network weather request is needed by these tests. Linux needs the usual Slint desktop build dependencies; the test platform itself is headless.
 
-Release-note context for the next release or PR: rapid theme changes can no longer be overwritten by an older delayed palette swap; cancelling a theme dip restores the overlay immediately. Photo and privacy behavior is unchanged and protected by additional contract tests.
+Release-note context for the next release or PR: rapid theme changes can no longer be overwritten by an older delayed palette swap; cancelling a theme dip restores the overlay immediately. Photo publication is queued before optional thumbnail persistence, and privacy observation runs independently of calendar reads. Additional contract tests cover these ownership boundaries.

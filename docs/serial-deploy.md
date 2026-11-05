@@ -21,9 +21,9 @@ through the frame's USB serial console (`ttyGS0`, exposed as
   60-second wait. Authentication and command completion share a 60-second
   deadline. A timeout fails explicitly and closes the host port; it does not
   cancel an unknown in-flight command. Run longer jobs detached
-  (`setsid -f sh -c '...' </dev/null >/dev/null 2>&1`) and read their
-  output later as root. Files written under `pf-maintenance` are not
-  readable by `diag`.
+  (`setsid -f sh -c '...' </dev/null >/dev/null 2>&1`). This example discards
+  stdout and stderr; redirect them to a log if needed. Files written under
+  `pf-maintenance` are not readable by `diag`.
 - Only one process can hold the port. `screen /dev/cu.usbmodem*` left
   attached blocks scripted access — close it first.
 
